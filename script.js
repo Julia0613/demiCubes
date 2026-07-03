@@ -253,7 +253,12 @@ const WALLET_KEY = "demiWallet";
 const RATING_STATS_KEY = "demiRatingStats";
 const RATING_SESSIONS_KEY = "demiSubmittedMatchSessions";
 const PLAYER_PROFILE_KEY = "DEMI_PLAYER_PROFILE";
-const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbwOT5iVI2D5wbj_wwUSSG85BMzIgvuM4bJnp9Qwb5-LD_hURGRPEM7BR8wxpuGMQvfzmA/exec";
+const SUPABASE_URL = "https://jvjaeopcwmgaitdwuxqe.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_nFCuOvucr1dDH17vMeMIeQ_G7cfXsU-";
+const SUPABASE_TABLES = {
+  players: "players",
+  scores: "scores",
+};
 const PROFILE_AVATARS = {
   airfryer: { label: "Аэрогриль", src: ASSETS.airfryer.normal },
   blender: { label: "Блендер", src: ASSETS.blender.normal },
@@ -958,7 +963,7 @@ function refreshRatingSummary() {
 }
 
 async function refreshRatingStats() {
-  if (!state.playerProfile || !LEADERBOARD_API_URL) return null;
+  if (!state.playerProfile || !isSupabaseConfigured()) return null;
   try {
     const data = await fetchLeaderboard("company");
     applyLeaderboardData(data);
@@ -1174,11 +1179,27 @@ async function loadLeaderboardInto(container, scope = "company") {
 }
 
 async function fetchLeaderboard(scope = "company") {
-  if (!LEADERBOARD_API_URL) throw new Error("Leaderboard API URL is empty");
-  const params = { action: "leaderboard", t: String(Date.now()) };
-  if (state.playerProfile?.player_id) params.player_id = state.playerProfile.player_id;
-  if (scope === "department" && state.playerProfile?.department) params.department = state.playerProfile.department;
-  return jsonpRequest(params);
+  if (!isSupabaseConfigured()) throw new Error("Supabase is not configured");
+  const filters = [];
+  if (scope === "department" && state.playerProfile?.department) {
+    filters.push(`department=eq.${encodeSupabaseValue(state.playerProfile.department)}`);
+  }
+  const query = [
+    `select=${encodeURIComponent("player_id,name,role,avatar_id,department,display_name,display_role,display_department,total_score,rounds,level_points,updated_at")}`,
+    "order=total_score.desc,updated_at.asc",
+    "limit=1000",
+    ...filters,
+  ].join("&");
+  const players = await supabaseRequest(`${SUPABASE_TABLES.players}?${query}`);
+  const rows = (Array.isArray(players) ? players : []).map(normalizeLeaderboardPlayer);
+  const currentPlayer = state.playerProfile?.player_id
+    ? rows.find((row) => row.player_id === state.playerProfile.player_id)
+    : null;
+  return {
+    ok: true,
+    leaderboard: rows.slice(0, 30),
+    current_player: currentPlayer ? withLeaderboardPosition(currentPlayer, rows) : null,
+  };
 }
 
 async function submitMatchResult(score, outcome) {
@@ -1193,7 +1214,7 @@ async function submitMatchResult(score, outcome) {
     showGlobalToast("Сначала нужен профиль для рейтинга");
     return;
   }
-  if (!LEADERBOARD_API_URL) {
+  if (!isSupabaseConfigured()) {
     showGlobalToast("Рейтинг временно недоступен");
     openLeaderboardModal({ title: "Очки сохранены" });
     return;
@@ -1217,64 +1238,159 @@ async function submitMatchResult(score, outcome) {
   };
   try {
     const data = await sendLeaderboardPayload(payload);
-    console.log("SUBMIT RESPONSE", data);
     applyLeaderboardData(data);
     openLeaderboardModal({ title: "Рейтинг обновлён" });
-  } catch (error) {
-    console.error(error);
+  } catch {
     showGlobalToast("Рейтинг временно недоступен");
     openLeaderboardModal({ title: "Очки сохранены" });
   }
 }
 
 async function sendLeaderboardPayload(payload) {
-  return jsonpRequest({
-    action: "submit",
-    payload: JSON.stringify(payload),
-    t: String(Date.now()),
-  });
+  if (!isSupabaseConfigured()) throw new Error("Supabase is not configured");
+  const profile = {
+    player_id: payload.player_id,
+    name: payload.name,
+    role: payload.role,
+    avatar_id: payload.avatar_id,
+    department: payload.department,
+    display_name: payload.display_name,
+    display_role: payload.display_role,
+    display_department: payload.display_department,
+    created_at: state.playerProfile?.created_at || payload.created_at,
+    updated_at: new Date().toISOString(),
+  };
+  let current = await fetchSupabasePlayer(payload.player_id);
+  await upsertSupabasePlayer(profile, current || emptyRatingStats());
+
+  const existingSession = await supabaseRequest(`${SUPABASE_TABLES.scores}?select=session_id&session_id=eq.${encodeSupabaseValue(payload.session_id)}&player_id=eq.${encodeSupabaseValue(payload.player_id)}&limit=1`);
+  if (!Array.isArray(existingSession) || !existingSession.length) {
+    await supabaseRequest(SUPABASE_TABLES.scores, {
+      method: "POST",
+      body: [{
+        player_id: payload.player_id,
+        game: payload.game,
+        score: Math.max(0, Number(payload.score) || 0),
+        difficulty: getDifficultyValue(payload.difficulty),
+        session_id: payload.session_id,
+      }],
+      prefer: "return=minimal",
+    });
+
+    current = current || emptyRatingStats();
+    const levelGain = LEVEL_PROGRESS_BY_DIFFICULTY[payload.difficulty] || LEVEL_PROGRESS_BY_DIFFICULTY.normal;
+    await upsertSupabasePlayer(profile, {
+      total_score: Math.max(0, Number(current?.total_score) || 0) + Math.max(0, Number(payload.score) || 0),
+      rounds: Math.max(0, Number(current?.rounds) || 0) + 1,
+      level_points: Math.max(0, Number(current?.level_points) || 0) + levelGain,
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  return fetchLeaderboard("company");
 }
 
-function jsonpRequest(params, timeout = 12000) {
-  return new Promise((resolve, reject) => {
-    const callbackName = `demiLeaderboard_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const query = new URLSearchParams({
-      ...params,
-      callback: callbackName,
-    });
-    const script = document.createElement("script");
-    let settled = false;
-    const cleanup = () => {
-      settled = true;
-      clearTimeout(timer);
-      delete window[callbackName];
-      script.remove();
-    };
-    const timer = setTimeout(() => {
-      if (settled) return;
-      cleanup();
-      reject(new Error("Leaderboard request timeout"));
-    }, timeout);
+function isSupabaseConfigured() {
+  return /^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(SUPABASE_URL)
+    && SUPABASE_ANON_KEY
+    && !SUPABASE_URL.includes("YOUR_PROJECT_REF")
+    && !SUPABASE_ANON_KEY.includes("PASTE_YOUR");
+}
 
-    window[callbackName] = (data) => {
-      if (settled) return;
-      cleanup();
-      if (data?.ok === false) {
-        reject(new Error(data.error || "Leaderboard unavailable"));
-        return;
-      }
-      resolve(data || {});
-    };
+function getSupabaseRestUrl(path) {
+  const baseUrl = SUPABASE_URL.replace(/\/+$/, "");
+  return `${baseUrl}/rest/v1/${path.replace(/^\/+/, "")}`;
+}
 
-    script.onerror = () => {
-      if (settled) return;
-      cleanup();
-      reject(new Error("Leaderboard script load failed"));
-    };
-    script.async = true;
-    script.src = `${LEADERBOARD_API_URL}?${query.toString()}`;
-    document.head.append(script);
+function encodeSupabaseValue(value) {
+  return encodeURIComponent(String(value ?? ""));
+}
+
+function getDifficultyValue(difficulty) {
+  return { easy: 1, normal: 2, hard: 3 }[difficulty] || 2;
+}
+
+async function supabaseRequest(path, options = {}) {
+  const response = await fetch(getSupabaseRestUrl(path), {
+    method: options.method || "GET",
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+      ...(options.prefer ? { Prefer: options.prefer } : {}),
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
   });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(text || `Supabase request failed: ${response.status}`);
+  }
+  if (response.status === 204) return null;
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
+}
+
+function normalizeLeaderboardPlayer(player) {
+  const totalScore = Math.max(0, Number(player?.total_score) || 0);
+  const rounds = Math.max(0, Number(player?.rounds) || 0);
+  const levelPoints = Math.max(0, Number(player?.level_points ?? rounds) || 0);
+  return {
+    player_id: String(player?.player_id || ""),
+    name: cleanProfileField(player?.name, 24, "Игрок"),
+    role: cleanProfileField(player?.role, 40, "Гость кухни"),
+    avatar_id: normalizeAvatarId(player?.avatar_id),
+    department: normalizeDepartment(player?.department),
+    display_name: cleanProfileField(player?.display_name || player?.name, 24, "Игрок"),
+    display_role: cleanProfileField(player?.display_role || player?.role, 40, "Гость кухни"),
+    display_department: cleanProfileField(player?.display_department || player?.department, 60, DEPARTMENTS[0]),
+    total_score: totalScore,
+    rounds,
+    level_points: levelPoints,
+    updated_at: player?.updated_at || "",
+  };
+}
+
+function withLeaderboardPosition(player, rows) {
+  const rank = rows.findIndex((row) => row.player_id === player.player_id) + 1;
+  const totalPlayers = rows.length;
+  const percentile = rank && totalPlayers
+    ? Math.round(((totalPlayers - rank + 1) / totalPlayers) * 100)
+    : 0;
+  return {
+    ...player,
+    rank: rank || null,
+    total_players: totalPlayers,
+    percentile,
+  };
+}
+
+async function fetchSupabasePlayer(playerId) {
+  const rows = await supabaseRequest(`${SUPABASE_TABLES.players}?select=*&player_id=eq.${encodeSupabaseValue(playerId)}&limit=1`);
+  return Array.isArray(rows) && rows[0] ? normalizeLeaderboardPlayer(rows[0]) : null;
+}
+
+async function upsertSupabasePlayer(profile, stats = {}) {
+  const record = {
+    player_id: profile.player_id,
+    name: cleanProfileField(profile.name, 24, "Игрок"),
+    role: cleanProfileField(profile.role, 40, "Гость кухни"),
+    avatar_id: normalizeAvatarId(profile.avatar_id),
+    department: normalizeDepartment(profile.department),
+    display_name: cleanProfileField(profile.display_name || profile.name, 24, "Игрок"),
+    display_role: cleanProfileField(profile.display_role || profile.role, 40, "Гость кухни"),
+    display_department: cleanProfileField(profile.display_department || profile.department, 60, DEPARTMENTS[0]),
+    total_score: Math.max(0, Number(stats?.total_score) || 0),
+    rounds: Math.max(0, Number(stats?.rounds) || 0),
+    level_points: Math.max(0, Number(stats?.level_points ?? stats?.rounds) || 0),
+    created_at: profile.created_at || new Date().toISOString(),
+    updated_at: stats?.updated_at || profile.updated_at || new Date().toISOString(),
+  };
+  const rows = await supabaseRequest(`${SUPABASE_TABLES.players}?on_conflict=player_id`, {
+    method: "POST",
+    body: [record],
+    prefer: "resolution=merge-duplicates,return=representation",
+  });
+  return Array.isArray(rows) && rows[0] ? normalizeLeaderboardPlayer(rows[0]) : record;
 }
 
 function showGlobalToast(text) {
