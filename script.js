@@ -253,7 +253,7 @@ const WALLET_KEY = "demiWallet";
 const RATING_STATS_KEY = "demiRatingStats";
 const RATING_SESSIONS_KEY = "demiSubmittedMatchSessions";
 const PLAYER_PROFILE_KEY = "DEMI_PLAYER_PROFILE";
-const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbzVkqzD2E5rJxTGek0jBtxXnZ_m7fplVvOLmGX3U6ukEYtj90XfTWbV83OaQWy1YpPlqQ/exec";
+const LEADERBOARD_API_URL = "https://script.google.com/macros/s/AKfycbxDObiB2J4s1RDjPAoZg_3ch7yWkQ3P3r8R0eWPU3QKZ0LdbM3SplcsWsQwXCKdtjfNeQ/exec";
 const PROFILE_AVATARS = {
   airfryer: { label: "Аэрогриль", src: ASSETS.airfryer.normal },
   blender: { label: "Блендер", src: ASSETS.blender.normal },
