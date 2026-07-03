@@ -1217,6 +1217,7 @@ async function submitMatchResult(score, outcome) {
   };
   try {
     const data = await sendLeaderboardPayload(payload);
+    console.log("SUBMIT RESPONSE", data);
     applyLeaderboardData(data);
     openLeaderboardModal({ title: "Рейтинг обновлён" });
   } catch (error) {
