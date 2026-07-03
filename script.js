@@ -938,6 +938,7 @@ function getRatingStatus(stats = state.ratingStats) {
 
 function applyLeaderboardData(data) {
   if (data?.current_player) saveRatingStats(data.current_player, { keepBestLocal: false });
+  else if (data?.ok && state.playerProfile) saveRatingStats(emptyRatingStats(), { keepBestLocal: false });
 }
 
 function refreshRatingSummary() {
@@ -1066,9 +1067,9 @@ function openProfileModal(options = {}) {
     const role = overlay.querySelector("#profileRole").value;
     const avatar = overlay.querySelector('input[name="avatar_id"]:checked')?.value;
     const department = overlay.querySelector("#profileDepartment").value;
-    savePlayerProfile(name, role, avatar, department);
+    const profile = savePlayerProfile(name, role, avatar, department);
     refreshStatusMounts();
-    refreshRatingStats();
+    syncPlayerProfile(profile);
     overlay.remove();
     showGlobalToast("Профиль сохранён");
     playSound("score");
@@ -1289,6 +1290,18 @@ async function sendLeaderboardPayload(payload) {
   }
 
   return fetchLeaderboard("company");
+}
+
+async function syncPlayerProfile(profile = state.playerProfile) {
+  if (!profile || !isSupabaseConfigured()) return null;
+  try {
+    const current = await fetchSupabasePlayer(profile.player_id);
+    const saved = await upsertSupabasePlayer(profile, current || state.ratingStats || emptyRatingStats());
+    await refreshRatingStats();
+    return saved;
+  } catch {
+    return null;
+  }
 }
 
 function isSupabaseConfigured() {
