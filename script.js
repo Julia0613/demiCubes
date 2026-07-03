@@ -847,8 +847,9 @@ function loadRatingStats() {
   }
 }
 
-function saveRatingStats(stats) {
+function saveRatingStats(stats, options = {}) {
   const current = state.ratingStats || emptyRatingStats();
+  const keepBestLocal = options.keepBestLocal !== false;
   const incomingTotal = Math.max(0, Number(stats?.total_score) || 0);
   const incomingRounds = Math.max(0, Number(stats?.rounds) || 0);
   const incomingLevelPoints = Math.max(0, Number(stats?.level_points) || 0);
@@ -856,9 +857,9 @@ function saveRatingStats(stats) {
     ...emptyRatingStats(),
     ...current,
     ...(stats || {}),
-    total_score: Math.max(Math.max(0, Number(current.total_score) || 0), incomingTotal),
-    rounds: Math.max(Math.max(0, Number(current.rounds) || 0), incomingRounds),
-    level_points: Math.max(Math.max(0, Number(current.level_points) || 0), incomingLevelPoints),
+    total_score: keepBestLocal ? Math.max(Math.max(0, Number(current.total_score) || 0), incomingTotal) : incomingTotal,
+    rounds: keepBestLocal ? Math.max(Math.max(0, Number(current.rounds) || 0), incomingRounds) : incomingRounds,
+    level_points: keepBestLocal ? Math.max(Math.max(0, Number(current.level_points) || 0), incomingLevelPoints) : incomingLevelPoints,
     rank: stats?.rank ? Number(stats.rank) : null,
     total_players: Math.max(0, Number(stats?.total_players) || 0),
     percentile: Math.max(0, Math.min(100, Number(stats?.percentile) || 0)),
@@ -936,7 +937,7 @@ function getRatingStatus(stats = state.ratingStats) {
 }
 
 function applyLeaderboardData(data) {
-  if (data?.current_player) saveRatingStats(data.current_player);
+  if (data?.current_player) saveRatingStats(data.current_player, { keepBestLocal: false });
 }
 
 function refreshRatingSummary() {
