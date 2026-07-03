@@ -395,6 +395,54 @@ const STATUS_LEVELS = [
     desc: "Верхние 10%. Это уже серьёзная кухня.",
   },
 ];
+const LOCAL_STATUS_LEVELS = [
+  {
+    title: "Новичок кухни",
+    desc: "Первые кубики только разогреваются.",
+  },
+  {
+    title: "Первый замес",
+    desc: "Раунд засчитан. Кухня уже в деле.",
+  },
+  {
+    title: "Ловец ходов",
+    desc: "Комбо начинают попадаться чаще.",
+  },
+  {
+    title: "Кухонный стажёр",
+    desc: "Плитки слушаются всё увереннее.",
+  },
+  {
+    title: "Смузи-смельчак",
+    desc: "Игровой ритм пойман, поле оживает.",
+  },
+  {
+    title: "Комбо-мастер",
+    desc: "Ходы собираются красиво и вовремя.",
+  },
+  {
+    title: "Герой кухни",
+    desc: "Раунды копятся, бустеры улыбаются.",
+  },
+  {
+    title: "Звёздный игрок",
+    desc: "Почти всё поле работает на тебя.",
+  },
+  {
+    title: "Мастер кубиков",
+    desc: "Кухня узнаёт твой стиль с первого хода.",
+  },
+  {
+    title: "Профи Demiand",
+    desc: "Внутриигровой уровень сияет на максимум.",
+  },
+];
+const LOCAL_LEVEL_STEPS = [0, 1, 3, 6, 10, 15, 21, 28, 36, 45];
+const LEVEL_PROGRESS_BY_DIFFICULTY = {
+  easy: 1,
+  normal: 2,
+  hard: 3,
+};
 
 const LOADING_COPY = [
   "Разогреваем кухню...",
@@ -613,7 +661,7 @@ function leaderboardButton() {
   button.setAttribute("aria-label", `Рейтинг: ${info.level.title}, ${info.totalScore} очков`);
   button.innerHTML = `
     <span class="status-kicker">Рейтинг</span>
-    <strong>${info.level.title}</strong>
+    <strong>Ур. ${info.localLevelNumber}/${info.localLevelMax}</strong>
     <span class="rating-mini">${info.totalScore}</span>
   `;
   button.addEventListener("click", (event) => {
@@ -768,6 +816,7 @@ function emptyRatingStats() {
   return {
     total_score: 0,
     rounds: 0,
+    level_points: 0,
     rank: null,
     total_players: 0,
     percentile: 0,
@@ -783,6 +832,7 @@ function loadRatingStats() {
       ...(saved || {}),
       total_score: Math.max(0, Number(saved?.total_score) || 0),
       rounds: Math.max(0, Number(saved?.rounds) || 0),
+      level_points: Math.max(0, Number(saved?.level_points ?? saved?.rounds) || 0),
       rank: saved?.rank ? Number(saved.rank) : null,
       total_players: Math.max(0, Number(saved?.total_players) || 0),
       percentile: Math.max(0, Math.min(100, Number(saved?.percentile) || 0)),
@@ -796,12 +846,14 @@ function saveRatingStats(stats) {
   const current = state.ratingStats || emptyRatingStats();
   const incomingTotal = Math.max(0, Number(stats?.total_score) || 0);
   const incomingRounds = Math.max(0, Number(stats?.rounds) || 0);
+  const incomingLevelPoints = Math.max(0, Number(stats?.level_points) || 0);
   state.ratingStats = {
     ...emptyRatingStats(),
     ...current,
     ...(stats || {}),
     total_score: Math.max(Math.max(0, Number(current.total_score) || 0), incomingTotal),
     rounds: Math.max(Math.max(0, Number(current.rounds) || 0), incomingRounds),
+    level_points: Math.max(Math.max(0, Number(current.level_points) || 0), incomingLevelPoints),
     rank: stats?.rank ? Number(stats.rank) : null,
     total_players: Math.max(0, Number(stats?.total_players) || 0),
     percentile: Math.max(0, Math.min(100, Number(stats?.percentile) || 0)),
@@ -826,17 +878,19 @@ function saveSubmittedMatchSessions(sessions) {
   localStorage.setItem(RATING_SESSIONS_KEY, JSON.stringify(list));
 }
 
-function addLocalRatingScore(score, sessionId) {
+function addLocalRatingScore(score, sessionId, difficulty = state.difficulty) {
   const amount = Math.max(0, Number(score) || 0);
   if (!amount || !sessionId) return state.ratingStats;
   const sessions = loadSubmittedMatchSessions();
   if (sessions.has(sessionId)) return state.ratingStats;
   sessions.add(sessionId);
   saveSubmittedMatchSessions(sessions);
+  const levelGain = LEVEL_PROGRESS_BY_DIFFICULTY[difficulty] || LEVEL_PROGRESS_BY_DIFFICULTY.normal;
   return saveRatingStats({
     ...state.ratingStats,
     total_score: Math.max(0, Number(state.ratingStats?.total_score) || 0) + amount,
     rounds: Math.max(0, Number(state.ratingStats?.rounds) || 0) + 1,
+    level_points: Math.max(0, Number(state.ratingStats?.level_points) || 0) + levelGain,
     updated_at: new Date().toISOString(),
   });
 }
@@ -846,15 +900,33 @@ function getRatingStatus(stats = state.ratingStats) {
     ...emptyRatingStats(),
     ...(stats || {}),
   };
+  const totalScore = Math.max(0, Number(normalized.total_score) || 0);
+  const rounds = Math.max(0, Number(normalized.rounds) || 0);
+  const levelPoints = Math.max(0, Number(normalized.level_points ?? rounds) || 0);
   const percentile = Math.max(0, Math.min(100, Number(normalized.percentile) || 0));
-  const levelIndex = STATUS_LEVELS.reduce((current, level, index) => (percentile >= level.minPercent ? index : current), 0);
+  const hasGlobalPosition = Boolean(normalized.rank && normalized.total_players);
+  const globalLevelIndex = STATUS_LEVELS.reduce((current, level, index) => (percentile >= level.minPercent ? index : current), 0);
+  const localLevelIndex = LOCAL_LEVEL_STEPS.reduce((current, minPoints, index) => (levelPoints >= minPoints ? index : current), 0);
+  const levelIndex = hasGlobalPosition ? globalLevelIndex : localLevelIndex;
+  const localLevel = LOCAL_STATUS_LEVELS[localLevelIndex] || LOCAL_STATUS_LEVELS[0];
+  const globalLevel = STATUS_LEVELS[globalLevelIndex] || STATUS_LEVELS[0];
   return {
     ...normalized,
-    totalScore: Math.max(0, Number(normalized.total_score) || 0),
+    totalScore,
+    rounds,
+    levelPoints,
     percentile,
-    level: STATUS_LEVELS[levelIndex],
+    hasGlobalPosition,
+    statusSource: hasGlobalPosition ? "global" : "local",
+    level: hasGlobalPosition ? globalLevel : localLevel,
     levelIndex,
-    next: STATUS_LEVELS[levelIndex + 1] || null,
+    localLevel,
+    localLevelIndex,
+    localLevelNumber: localLevelIndex + 1,
+    localLevelMax: LOCAL_STATUS_LEVELS.length,
+    globalLevel,
+    globalLevelIndex,
+    next: (hasGlobalPosition ? STATUS_LEVELS : LOCAL_STATUS_LEVELS)[levelIndex + 1] || null,
   };
 }
 
@@ -869,11 +941,16 @@ function refreshRatingSummary() {
   const rankText = info.rank && info.total_players
     ? `${info.rank} из ${info.total_players}`
     : "пока ждём таблицу";
+  const statusLabel = info.hasGlobalPosition ? "Статус в рейтинге" : "Уровень в игре";
+  const localLine = info.hasGlobalPosition
+    ? `<small class="rating-summary-note">В игре: уровень ${info.localLevelNumber}/${info.localLevelMax} · ${escapeHtml(info.localLevel.title)}</small>`
+    : `<small class="rating-summary-note">Уровень ${info.localLevelNumber}/${info.localLevelMax} · ${info.rounds} ${plural(info.rounds, ["победа", "победы", "побед"])}</small>`;
   summary.innerHTML = `
     <div class="rating-summary-main">
-      <span>Мой статус</span>
+      <span>${statusLabel}</span>
       <strong>${escapeHtml(info.level.title)}</strong>
       <p>${escapeHtml(info.level.desc)}</p>
+      ${localLine}
     </div>
     <div class="rating-stat points"><span>Очки</span><strong>${info.totalScore}</strong></div>
     <div class="rating-stat place"><span>Место</span><strong>${escapeHtml(rankText)}</strong></div>
@@ -1000,6 +1077,10 @@ function openLeaderboardModal(options = {}) {
   const rankText = info.rank && info.total_players
     ? `${info.rank} из ${info.total_players}`
     : "пока ждём таблицу";
+  const statusLabel = info.hasGlobalPosition ? "Статус в рейтинге" : "Уровень в игре";
+  const localLine = info.hasGlobalPosition
+    ? `<small class="rating-summary-note">В игре: уровень ${info.localLevelNumber}/${info.localLevelMax} · ${escapeHtml(info.localLevel.title)}</small>`
+    : `<small class="rating-summary-note">Уровень ${info.localLevelNumber}/${info.localLevelMax} · ${info.rounds} ${plural(info.rounds, ["победа", "победы", "побед"])}</small>`;
   const overlay = document.createElement("div");
   overlay.className = "leaderboard-modal";
   overlay.innerHTML = `
@@ -1008,9 +1089,10 @@ function openLeaderboardModal(options = {}) {
       <h3>${escapeHtml(options.title || "Рейтинговая доска")}</h3>
       <div class="rating-summary" id="ratingSummary">
         <div class="rating-summary-main">
-          <span>Мой статус</span>
+          <span>${statusLabel}</span>
           <strong>${escapeHtml(info.level.title)}</strong>
           <p>${escapeHtml(info.level.desc)}</p>
+          ${localLine}
         </div>
         <div class="rating-stat points"><span>Очки</span><strong>${info.totalScore}</strong></div>
         <div class="rating-stat place"><span>Место</span><strong>${escapeHtml(rankText)}</strong></div>
@@ -1093,23 +1175,18 @@ async function loadLeaderboardInto(container, scope = "company") {
 
 async function fetchLeaderboard(scope = "company") {
   if (!LEADERBOARD_API_URL) throw new Error("Leaderboard API URL is empty");
-  const params = new URLSearchParams({ action: "leaderboard", t: String(Date.now()) });
-  if (state.playerProfile?.player_id) params.set("player_id", state.playerProfile.player_id);
-  if (scope === "department" && state.playerProfile?.department) params.set("department", state.playerProfile.department);
-  const response = await fetch(`${LEADERBOARD_API_URL}?${params.toString()}`, {
-    method: "GET",
-    cache: "no-store",
-  });
-  const data = await readJsonResponse(response);
-  if (!response.ok || data.ok === false) throw new Error(data.error || "Leaderboard unavailable");
-  return data;
+  const params = { action: "leaderboard", t: String(Date.now()) };
+  if (state.playerProfile?.player_id) params.player_id = state.playerProfile.player_id;
+  if (scope === "department" && state.playerProfile?.department) params.department = state.playerProfile.department;
+  return jsonpRequest(params);
 }
 
 async function submitMatchResult(score, outcome) {
   if (state.resultSubmitted || state.currentGame !== "match") return;
+  if (outcome !== "win") return;
   state.resultSubmitted = true;
   const sessionId = state.matchSessionId || makeId("session");
-  addLocalRatingScore(score, sessionId);
+  addLocalRatingScore(score, sessionId, state.difficulty);
   refreshRatingSummary();
   if (!state.playerProfile) {
     openProfileModal({ required: true });
@@ -1149,38 +1226,53 @@ async function submitMatchResult(score, outcome) {
 }
 
 async function sendLeaderboardPayload(payload) {
-  try {
-    const response = await fetch(LEADERBOARD_API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload),
-    });
-    const data = await readJsonResponse(response);
-    if (!response.ok || data.ok === false) throw new Error(data.error || "Submit failed");
-    return data;
-  } catch (postError) {
-    const params = new URLSearchParams({
-      action: "submit",
-      payload: JSON.stringify(payload),
-      t: String(Date.now()),
-    });
-    const response = await fetch(`${LEADERBOARD_API_URL}?${params.toString()}`, {
-      method: "GET",
-      cache: "no-store",
-    });
-    const data = await readJsonResponse(response);
-    if (!response.ok || data.ok === false) throw new Error(data.error || postError.message || "Submit failed");
-    return data;
-  }
+  return jsonpRequest({
+    action: "submit",
+    payload: JSON.stringify(payload),
+    t: String(Date.now()),
+  });
 }
 
-async function readJsonResponse(response) {
-  const text = await response.text();
-  try {
-    return text ? JSON.parse(text) : {};
-  } catch {
-    throw new Error(`Leaderboard returned non-JSON response: ${text.slice(0, 90)}`);
-  }
+function jsonpRequest(params, timeout = 12000) {
+  return new Promise((resolve, reject) => {
+    const callbackName = `demiLeaderboard_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const query = new URLSearchParams({
+      ...params,
+      callback: callbackName,
+    });
+    const script = document.createElement("script");
+    let settled = false;
+    const cleanup = () => {
+      settled = true;
+      clearTimeout(timer);
+      delete window[callbackName];
+      script.remove();
+    };
+    const timer = setTimeout(() => {
+      if (settled) return;
+      cleanup();
+      reject(new Error("Leaderboard request timeout"));
+    }, timeout);
+
+    window[callbackName] = (data) => {
+      if (settled) return;
+      cleanup();
+      if (data?.ok === false) {
+        reject(new Error(data.error || "Leaderboard unavailable"));
+        return;
+      }
+      resolve(data || {});
+    };
+
+    script.onerror = () => {
+      if (settled) return;
+      cleanup();
+      reject(new Error("Leaderboard script load failed"));
+    };
+    script.async = true;
+    script.src = `${LEADERBOARD_API_URL}?${query.toString()}`;
+    document.head.append(script);
+  });
 }
 
 function showGlobalToast(text) {
@@ -2822,7 +2914,7 @@ function showResult(character, score, outcome = "win") {
   const result = getResultCopy(character, score, outcome);
   const resultImage = getResultImage(character, score, outcome);
   const resultRank = isRatingGame
-    ? result.rank
+    ? (outcome === "win" ? result.rank : "Очки рейтинга не начислены")
     : outcome === "win"
       ? "Монетки за победу получены"
       : "База не начислена";
@@ -2835,7 +2927,7 @@ function showResult(character, score, outcome = "win") {
       <div class="result-card">
         <div id="resultHero"></div>
         <div class="result-copy">
-          ${isRatingGame ? `<div class="score-big">${score}</div>` : `<div class="coin-total"><img src="${ASSETS.economy.coin}" alt="">${coinsEarned ? `+${coinsEarned}` : "0"} монет</div>`}
+          ${isRatingGame ? `<div class="score-big">${outcome === "win" ? score : "0"}</div>` : `<div class="coin-total"><img src="${ASSETS.economy.coin}" alt="">${coinsEarned ? `+${coinsEarned}` : "0"} монет</div>`}
           <h2>${result.title}</h2>
           <div class="rank">${resultRank}</div>
           <p class="result-phrase">${result.phrase}</p>
@@ -2865,7 +2957,7 @@ function showResult(character, score, outcome = "win") {
   };
   document.querySelector("#selectButton").addEventListener("click", goSelect);
   document.querySelector("#selectButtonTop").addEventListener("click", goSelect);
-  if (character === "match") submitMatchResult(score, outcome);
+  if (character === "match" && outcome === "win") submitMatchResult(score, outcome);
   if (outcome === "win") confetti();
 }
 

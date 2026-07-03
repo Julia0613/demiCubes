@@ -458,7 +458,7 @@ button {
   width: min(100%, 390px);
   display: grid;
   justify-items: center;
-  gap: 6px;
+  gap: 11px;
   margin: 0 auto;
   padding: clamp(14px, 2.3dvh, 20px) clamp(16px, 5vw, 26px) clamp(15px, 2.5dvh, 22px);
   overflow: hidden;
@@ -541,8 +541,8 @@ h1 {
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-  font-size: clamp(42px, 7.2dvh, 62px);
-  line-height: 0.9;
+  font-size: clamp(40px, 6.8dvh, 58px);
+  line-height: 0.96;
   text-wrap: balance;
 }
 
@@ -579,14 +579,15 @@ h2 {
 .start-subtitle {
   position: relative;
   z-index: 1;
-  max-width: 25ch;
+  max-width: 29ch;
   margin-top: 0;
   padding: 0;
   border-radius: 0;
   background: transparent;
   color: #7d344b;
-  font-size: clamp(16px, 2.5dvh, 20px);
-  line-height: 1.12;
+  font-size: clamp(15px, 2.25dvh, 19px);
+  line-height: 1.28;
+  text-wrap: balance;
 }
 
 .small-note {
@@ -2492,6 +2493,17 @@ h2 {
   max-width: 31ch;
 }
 
+.rating-summary-note {
+  display: inline-block;
+  max-width: 34ch;
+  margin-top: 4px;
+  color: #a32055;
+  font-size: 11px;
+  line-height: 1.18;
+  font-weight: 1000;
+  text-align: center;
+}
+
 .rating-stat {
   min-width: 0;
   display: grid;
@@ -3211,7 +3223,7 @@ h2 {
     max-width: 340px;
     padding: 12px 18px 14px;
     border-radius: 24px;
-    gap: 4px;
+    gap: 8px;
   }
 
   h1 {
@@ -3221,6 +3233,7 @@ h2 {
 
   .start-title {
     font-size: clamp(34px, 6dvh, 46px);
+    line-height: 0.98;
     white-space: normal;
   }
 
@@ -3230,9 +3243,10 @@ h2 {
   }
 
   .start-copy .start-subtitle {
-    max-width: 27ch;
+    max-width: 29ch;
     margin-top: 0;
     font-size: 15px;
+    line-height: 1.25;
   }
 
   .image-button {
@@ -3325,7 +3339,7 @@ h2 {
     max-width: 320px;
     padding: 11px 16px 13px;
     border-radius: 22px;
-    gap: 3px;
+    gap: 7px;
   }
 
   .start-kicker {
@@ -3340,6 +3354,7 @@ h2 {
 
   .start-title {
     font-size: clamp(30px, 5.8dvh, 42px);
+    line-height: 0.98;
   }
 
   h2,
@@ -3355,10 +3370,10 @@ h2 {
   }
 
   .start-subtitle {
-    max-width: 27ch;
+    max-width: 29ch;
     margin-top: 0;
     font-size: 14px;
-    line-height: 1.08;
+    line-height: 1.25;
   }
 
   .small-note {
@@ -3569,17 +3584,20 @@ h2 {
     margin-inline: 0;
     padding: 18px 24px 20px;
     border-radius: 30px;
+    gap: 12px;
     justify-items: center;
     text-align: center;
   }
 
   .start-title {
-    font-size: clamp(44px, 7.4dvh, 66px);
+    font-size: clamp(42px, 7dvh, 60px);
+    line-height: 0.98;
   }
 
   .start-subtitle {
-    max-width: 27ch;
-    font-size: clamp(17px, 2.7dvh, 21px);
+    max-width: 30ch;
+    font-size: clamp(16px, 2.4dvh, 19px);
+    line-height: 1.28;
   }
 
   h1 {
