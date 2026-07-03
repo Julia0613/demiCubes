@@ -1219,7 +1219,8 @@ async function submitMatchResult(score, outcome) {
     const data = await sendLeaderboardPayload(payload);
     applyLeaderboardData(data);
     openLeaderboardModal({ title: "Рейтинг обновлён" });
-  } catch {
+  } catch (error) {
+    console.error(error);
     showGlobalToast("Рейтинг временно недоступен");
     openLeaderboardModal({ title: "Очки сохранены" });
   }
