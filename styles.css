@@ -2430,9 +2430,10 @@ h2 {
 
 .leaderboard-card {
   width: min(100%, 410px);
-  max-height: min(88dvh, 690px);
+  height: min(88dvh, 690px);
   overflow: hidden;
   align-content: start;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   gap: 12px;
 }
 
@@ -2684,9 +2685,14 @@ h2 {
 .leaderboard-list {
   width: 100%;
   min-height: 0;
+  max-height: 100%;
+  align-self: stretch;
   display: grid;
   gap: 7px;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
   padding-right: 2px;
   scrollbar-width: none;
 }
