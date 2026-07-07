@@ -96,6 +96,19 @@ const ASSETS = {
     colorMixer: "./assets/images/booster_color_mixer.png",
     shopCharacter: "./assets/images/shop_panel_character.png",
   },
+  duel: {
+    soloIcon: "./assets/images/solo_run_icon.png",
+    icon: "./assets/images/duel_icon.png",
+    roomBg: "./assets/images/duel_room_bg.png",
+    codeTicket: "./assets/images/duel_code_ticket.png",
+    vsBg: "./assets/images/duel_vs_bg.png",
+    startBurst: "./assets/images/duel_start_burst.png",
+    finalSecondsFrame: "./assets/images/duel_final_seconds_frame.png",
+    rivalComboPop: "./assets/images/duel_rival_combo_pop.png",
+    victoryBg: "./assets/images/duel_victory_bg.png",
+    defeatBg: "./assets/images/duel_defeat_bg.png",
+    drawBg: "./assets/images/duel_draw_bg.png",
+  },
 };
 
 const SOUNDS = {
@@ -258,6 +271,7 @@ const SUPABASE_ANON_KEY = "sb_publishable_nFCuOvucr1dDH17vMeMIeQ_G7cfXsU-";
 const SUPABASE_TABLES = {
   players: "players",
   scores: "scores",
+  duelRooms: "duel_rooms",
 };
 const PROFILE_AVATARS = {
   airfryer: { label: "Аэрогриль", src: ASSETS.airfryer.normal },
@@ -448,6 +462,34 @@ const LEVEL_PROGRESS_BY_DIFFICULTY = {
   normal: 2,
   hard: 3,
 };
+const DUEL_TIMERS = {
+  easy: 90,
+  normal: 120,
+  hard: 150,
+};
+const DUEL_COPY = {
+  title: "Кулинарный поединок",
+  solo: "Соло-забег",
+  duel: "Кулинарный поединок",
+  create: "Создать кухню",
+  join: "Ворваться на кухню",
+  codeTitle: "Код кухни",
+  waiting: "Ждём второго повара...",
+  rivalReady: "Соперник уже на кухне!",
+  warming: "Кухня почти готова...",
+  started: "Кулинарный поединок начался!",
+  finalSeconds: "Последние 10 секунд!",
+  timeUp: "Время вышло!",
+  counting: "Кухня считает очки...",
+  win: "Цели закрыты — кухня твоя!",
+  winByScore: "Цели закрыты, ты выше по очкам!",
+  goalsClosedButSecond: "Цели закрыты, но соперник обошёл по очкам",
+  placedFirst: "Цели не закрыты, но ты выше по очкам",
+  placedSecond: "Соперник набрал больше",
+  draw: "Идеальная ничья",
+  rematch: "Реванш на кухне",
+  back: "Вернуться к кубикам",
+};
 
 const LOADING_COPY = [
   "Разогреваем кухню...",
@@ -468,6 +510,7 @@ const state = {
   muted: localStorage.getItem("demiMuted") === "1",
   audioUnlocked: false,
   difficulty: localStorage.getItem("demiDifficulty") || "normal",
+  matchMode: localStorage.getItem("demiMatchMode") || "solo",
   currentGame: null,
   paused: false,
   playerProfile: loadPlayerProfile(),
@@ -477,6 +520,7 @@ const state = {
   roundBonusCoins: 0,
   progress: loadCareerProgress(),
   wallet: loadWallet(),
+  duel: null,
   raf: 0,
   timers: [],
   cleanup: [],
@@ -1407,6 +1451,242 @@ async function upsertSupabasePlayer(profile, stats = {}) {
   return Array.isArray(rows) && rows[0] ? normalizeLeaderboardPlayer(rows[0]) : record;
 }
 
+function getDuelTimerSeconds(difficultyKey = state.difficulty) {
+  return DUEL_TIMERS[difficultyKey] || DUEL_TIMERS.normal;
+}
+
+function makeRoomCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function normalizeDuelProfile(profile = state.playerProfile) {
+  if (!profile) return null;
+  return {
+    player_id: String(profile.player_id || ""),
+    name: cleanProfileField(profile.display_name || profile.name, 24, "Игрок"),
+    role: cleanProfileField(profile.display_role || profile.role, 40, "Гость кухни"),
+    avatar_id: normalizeAvatarId(profile.avatar_id),
+    department: normalizeDepartment(profile.department),
+  };
+}
+
+function ensureDuelProfile() {
+  if (state.playerProfile) return true;
+  openProfileModal({ required: true });
+  showGlobalToast("Сначала запишем повара");
+  return false;
+}
+
+function normalizeDuelRoom(room) {
+  if (!room?.room_code) return null;
+  return {
+    room_code: String(room.room_code),
+    status: String(room.status || "waiting"),
+    difficulty: Object.prototype.hasOwnProperty.call(DIFFICULTIES, room.difficulty) ? room.difficulty : "normal",
+    timer_seconds: Math.max(30, Number(room.timer_seconds) || DUEL_TIMERS.normal),
+    seed: String(room.seed || room.room_code),
+    board: Array.isArray(room.board) ? room.board : [],
+    goals: room.goals && typeof room.goals === "object" ? room.goals : {},
+    booster_kit: room.booster_kit && typeof room.booster_kit === "object" ? room.booster_kit : {},
+    host_player_id: String(room.host_player_id || ""),
+    guest_player_id: room.guest_player_id ? String(room.guest_player_id) : "",
+    host_profile: room.host_profile || {},
+    guest_profile: room.guest_profile || null,
+    host_progress: room.host_progress || null,
+    guest_progress: room.guest_progress || null,
+    host_result: room.host_result || null,
+    guest_result: room.guest_result || null,
+    starts_at: room.starts_at || "",
+    created_at: room.created_at || "",
+    updated_at: room.updated_at || "",
+  };
+}
+
+function getDuelSide(room = state.duel?.room) {
+  if (!room || !state.playerProfile?.player_id) return "host";
+  return room.host_player_id === state.playerProfile.player_id ? "host" : "guest";
+}
+
+function getDuelOpponentSide(side = getDuelSide()) {
+  return side === "host" ? "guest" : "host";
+}
+
+function getDuelPlayerProfile(room, side) {
+  return side === "host" ? room?.host_profile : room?.guest_profile;
+}
+
+function getDuelOpponentProfile(room = state.duel?.room) {
+  return getDuelPlayerProfile(room, getDuelOpponentSide(getDuelSide(room)));
+}
+
+function getDuelKitForDifficulty(difficultyKey) {
+  if (difficultyKey !== "hard") return {};
+  const bonusPool = ["shuffle", "star", "bomb"];
+  return {
+    hammer: 1,
+    [randomItem(bonusPool)]: 1,
+  };
+}
+
+function cloneMatchBoard(board) {
+  return (Array.isArray(board) ? board : []).map((tile) => (tile ? { ...tile } : null));
+}
+
+function makeDuelSeed(roomCode) {
+  return `${roomCode}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createSeededRandom(seedValue) {
+  let hash = 2166136261;
+  const seed = String(seedValue || "duel");
+  for (let i = 0; i < seed.length; i += 1) {
+    hash ^= seed.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return () => {
+    hash += 0x6D2B79F5;
+    let t = hash;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function makeSeededPicker(seedValue) {
+  const random = createSeededRandom(seedValue);
+  return (items) => items[Math.floor(random() * items.length)];
+}
+
+async function fetchDuelRoom(roomCode) {
+  if (!isSupabaseConfigured()) throw new Error("Supabase is not configured");
+  const rows = await supabaseRequest(`${SUPABASE_TABLES.duelRooms}?select=*&room_code=eq.${encodeSupabaseValue(roomCode)}&limit=1`);
+  return Array.isArray(rows) && rows[0] ? normalizeDuelRoom(rows[0]) : null;
+}
+
+async function patchDuelRoom(roomCode, patch, prefer = "return=representation") {
+  const rows = await supabaseRequest(`${SUPABASE_TABLES.duelRooms}?room_code=eq.${encodeSupabaseValue(roomCode)}`, {
+    method: "PATCH",
+    body: {
+      ...patch,
+      updated_at: new Date().toISOString(),
+    },
+    prefer,
+  });
+  return Array.isArray(rows) && rows[0] ? normalizeDuelRoom(rows[0]) : null;
+}
+
+async function createDuelRoom() {
+  if (!ensureDuelProfile()) return null;
+  if (!isSupabaseConfigured()) {
+    showGlobalToast("Кухня временно не отвечает");
+    return null;
+  }
+  const difficulty = state.difficulty;
+  const config = DIFFICULTIES[difficulty] || DIFFICULTIES.normal;
+  const size = 7;
+  const tileTypes = Object.keys(ASSETS.match.tiles);
+  let board = createMatchBoard(size, tileTypes);
+  addMatchBlockers(board, size, config.matchBlockers);
+  let guard = 0;
+  while (!hasAnyMatchMove(board, size) && guard < 12) {
+    board = createMatchBoard(size, tileTypes);
+    addMatchBlockers(board, size, config.matchBlockers);
+    guard += 1;
+  }
+  const goals = buildMatchGoals(tileTypes, config);
+  const profile = normalizeDuelProfile();
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const roomCode = makeRoomCode();
+    const existing = await fetchDuelRoom(roomCode).catch(() => null);
+    if (existing) continue;
+    const rows = await supabaseRequest(`${SUPABASE_TABLES.duelRooms}?on_conflict=room_code`, {
+      method: "POST",
+      body: [{
+        room_code: roomCode,
+        status: "waiting",
+        difficulty,
+        timer_seconds: getDuelTimerSeconds(difficulty),
+        seed: makeDuelSeed(roomCode),
+        board,
+        goals,
+        booster_kit: getDuelKitForDifficulty(difficulty),
+        host_player_id: profile.player_id,
+        host_profile: profile,
+      }],
+      prefer: "return=representation",
+    });
+    const room = Array.isArray(rows) && rows[0] ? normalizeDuelRoom(rows[0]) : null;
+    if (room) return room;
+  }
+  throw new Error("Could not create duel room");
+}
+
+async function joinDuelRoom(roomCodeValue) {
+  if (!ensureDuelProfile()) return null;
+  if (!isSupabaseConfigured()) {
+    showGlobalToast("Кухня временно не отвечает");
+    return null;
+  }
+  const roomCode = String(roomCodeValue || "").replace(/\D/g, "").slice(0, 6);
+  if (roomCode.length !== 6) {
+    showGlobalToast("Код должен быть из 6 цифр");
+    return null;
+  }
+  const room = await fetchDuelRoom(roomCode);
+  if (!room) {
+    showGlobalToast("Такой кухни не нашлось");
+    return null;
+  }
+  if (room.status !== "waiting" && room.status !== "ready") {
+    showGlobalToast("Поединок уже начался");
+    return null;
+  }
+  const profile = normalizeDuelProfile();
+  if (room.host_player_id === profile.player_id) return room;
+  if (room.guest_player_id && room.guest_player_id !== profile.player_id) {
+    showGlobalToast("Эта кухня уже занята");
+    return null;
+  }
+  const startsAt = room.starts_at || new Date(Date.now() + 4500).toISOString();
+  return patchDuelRoom(roomCode, {
+    status: "ready",
+    guest_player_id: profile.player_id,
+    guest_profile: profile,
+    starts_at: startsAt,
+  });
+}
+
+async function updateDuelProgress(progress) {
+  const room = state.duel?.room;
+  if (!room?.room_code || !state.duel?.side) return;
+  const key = `${state.duel.side}_progress`;
+  const payload = {
+    score: Math.max(0, Number(progress?.score) || 0),
+    goals_left: Math.max(0, Number(progress?.goals_left) || 0),
+    goals_total: Math.max(0, Number(progress?.goals_total) || 0),
+    goals_closed: Boolean(progress?.goals_closed),
+    updated_at: new Date().toISOString(),
+  };
+  patchDuelRoom(room.room_code, { [key]: payload }, "return=minimal").catch(() => {});
+}
+
+async function submitDuelResult(result) {
+  const room = state.duel?.room;
+  if (!room?.room_code || state.duel?.resultSubmitted) return null;
+  state.duel.resultSubmitted = true;
+  const key = `${state.duel.side}_result`;
+  const payload = {
+    score: Math.max(0, Number(result?.score) || 0),
+    goals_closed: Boolean(result?.goals_closed),
+    goals_left: Math.max(0, Number(result?.goals_left) || 0),
+    goals_total: Math.max(0, Number(result?.goals_total) || 0),
+    finished_at: new Date().toISOString(),
+  };
+  const updated = await patchDuelRoom(room.room_code, { [key]: payload }, "return=representation");
+  if (updated) state.duel.room = updated;
+  return updated;
+}
+
 function showGlobalToast(text) {
   document.querySelector(".global-toast")?.remove();
   const toast = document.createElement("div");
@@ -2213,6 +2493,7 @@ function showMatchPrepScreen() {
   state.screen = "matchPrep";
   setBackground("main");
   const difficulty = DIFFICULTIES[state.difficulty] || DIFFICULTIES.normal;
+  const mode = state.matchMode === "duel" ? "duel" : "solo";
   render(`
     <section class="screen match-prep-screen">
       <div class="top-row">
@@ -2230,10 +2511,24 @@ function showMatchPrepScreen() {
           <span>${difficulty.matchGoals} цели${difficulty.matchBlockers ? ` · ${difficulty.matchBlockers} отчёта-блокера` : ""}</span>
         </div>
       </div>
+      <div class="match-mode-picker" id="matchModePicker" aria-label="Режим Кубиков">
+        <button class="match-mode-option ${mode === "solo" ? "active" : ""}" type="button" data-mode="solo">
+          <img src="${ASSETS.duel.soloIcon}" alt="">
+          <span>${DUEL_COPY.solo}</span>
+          <small>Личный забег за рейтингом</small>
+        </button>
+        <button class="match-mode-option ${mode === "duel" ? "active" : ""}" type="button" data-mode="duel">
+          <img src="${ASSETS.duel.icon}" alt="">
+          <span>${DUEL_COPY.duel}</span>
+          <small>${getDuelTimerSeconds(state.difficulty)} секунд на кухне</small>
+        </button>
+      </div>
       <div class="inventory-preview" id="inventoryPreview"></div>
       <div class="match-prep-actions">
-        <button class="action-button secondary full shop-open-button" type="button" id="openShop"><img src="${ASSETS.buttons.shop}" alt=""> Магазин бустеров</button>
-        <button class="action-button full" type="button" id="startMatch">Играть в «Кубики сошлись»</button>
+        <button class="action-button secondary full shop-open-button solo-action" type="button" id="openShop"><img src="${ASSETS.buttons.shop}" alt=""> Магазин бустеров</button>
+        <button class="action-button full solo-action" type="button" id="startMatch">Играть в «Кубики сошлись»</button>
+        <button class="action-button full duel-action" type="button" id="createDuelKitchen">${DUEL_COPY.create}</button>
+        <button class="action-button secondary full duel-action" type="button" id="joinDuelKitchen">${DUEL_COPY.join}</button>
       </div>
     </section>
   `);
@@ -2242,6 +2537,15 @@ function showMatchPrepScreen() {
   document.querySelector("#soundMount").append(soundButton());
   document.querySelector("#matchPrepHero").append(safeImg(ASSETS.match.normal, "Кубики сошлись"));
   renderInventoryPreview();
+  updateMatchModeUi();
+  document.querySelectorAll("[data-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.matchMode = button.dataset.mode === "duel" ? "duel" : "solo";
+      localStorage.setItem("demiMatchMode", state.matchMode);
+      playSound("click");
+      updateMatchModeUi();
+    });
+  });
   document.querySelector("#backSelect").addEventListener("click", () => {
     playSound("click");
     showCharacterSelect();
@@ -2254,6 +2558,417 @@ function showMatchPrepScreen() {
     playSound("click");
     startMatchGame();
   });
+  document.querySelector("#createDuelKitchen").addEventListener("click", async () => {
+    playSound("click");
+    await showCreateDuelRoomScreen();
+  });
+  document.querySelector("#joinDuelKitchen").addEventListener("click", () => {
+    playSound("click");
+    showJoinDuelRoomScreen();
+  });
+}
+
+function updateMatchModeUi() {
+  const mode = state.matchMode === "duel" ? "duel" : "solo";
+  document.querySelectorAll(".match-mode-option").forEach((button) => {
+    button.classList.toggle("active", button.dataset.mode === mode);
+  });
+  document.querySelectorAll(".solo-action").forEach((node) => {
+    node.hidden = mode !== "solo";
+  });
+  document.querySelectorAll(".duel-action").forEach((node) => {
+    node.hidden = mode !== "duel";
+  });
+  const inventory = document.querySelector("#inventoryPreview");
+  if (inventory) inventory.hidden = mode !== "solo";
+}
+
+async function showCreateDuelRoomScreen() {
+  if (!ensureDuelProfile()) return;
+  setDuelBackground(ASSETS.duel.roomBg);
+  render(`
+    <section class="screen duel-room-screen">
+      <div class="top-row">
+        <button class="back-button" type="button" id="backMatchPrep">←</button>
+        <div id="soundMount"></div>
+      </div>
+      <div class="duel-room-card loading">
+        <h2>${DUEL_COPY.create}</h2>
+        <p>${DUEL_COPY.warming}</p>
+        <div class="duel-loader"></div>
+      </div>
+    </section>
+  `, "duel-app");
+  document.querySelector("#soundMount").append(soundButton());
+  document.querySelector("#backMatchPrep").addEventListener("click", () => {
+    playSound("click");
+    showMatchPrepScreen();
+  });
+  try {
+    const room = await createDuelRoom();
+    if (!room) {
+      showMatchPrepScreen();
+      showGlobalToast("Кухня временно не отвечает");
+      return;
+    }
+    state.duel = { room, side: "host", resultSubmitted: false };
+    showDuelWaitingRoom(room);
+  } catch {
+    showMatchPrepScreen();
+    showGlobalToast("Связь с кухней пропала, пробуем ещё раз");
+  }
+}
+
+function showDuelWaitingRoom(room) {
+  state.duel = { room, side: getDuelSide(room), resultSubmitted: false };
+  setDuelBackground(ASSETS.duel.roomBg);
+  render(`
+    <section class="screen duel-room-screen">
+      <div class="top-row">
+        <button class="back-button" type="button" id="backMatchPrep">←</button>
+        <div id="soundMount"></div>
+      </div>
+      <div class="duel-room-card">
+        <h2>${DUEL_COPY.codeTitle}</h2>
+        <div class="duel-code-ticket">
+          <img src="${ASSETS.duel.codeTicket}" alt="">
+          <strong>${room.room_code}</strong>
+        </div>
+        <p>Передай код сопернику</p>
+        <div class="duel-player-row">
+          ${duelPlayerBadge(room.host_profile, "Ты на кухне")}
+          ${duelPlayerBadge(room.guest_profile, room.guest_profile ? DUEL_COPY.rivalReady : DUEL_COPY.waiting, !room.guest_profile)}
+        </div>
+        <button class="action-button secondary full" type="button" id="copyRoomCode">Скопировать код</button>
+      </div>
+    </section>
+  `, "duel-app");
+  document.querySelector("#soundMount").append(soundButton());
+  document.querySelector("#backMatchPrep").addEventListener("click", () => {
+    playSound("click");
+    showMatchPrepScreen();
+  });
+  document.querySelector("#copyRoomCode").addEventListener("click", () => {
+    playSound("click");
+    navigator.clipboard?.writeText(room.room_code).catch(() => {});
+    showGlobalToast("Код кухни скопирован");
+  });
+  startDuelRoomPolling(room.room_code, (freshRoom) => {
+    state.duel.room = freshRoom;
+    if (freshRoom.status === "ready" || freshRoom.starts_at) showDuelVsScreen(freshRoom);
+  });
+}
+
+function showJoinDuelRoomScreen() {
+  if (!ensureDuelProfile()) return;
+  setDuelBackground(ASSETS.duel.roomBg);
+  render(`
+    <section class="screen duel-room-screen">
+      <div class="top-row">
+        <button class="back-button" type="button" id="backMatchPrep">←</button>
+        <div id="soundMount"></div>
+      </div>
+      <form class="duel-room-card join" id="joinDuelForm">
+        <h2>${DUEL_COPY.join}</h2>
+        <p>Введи код кухни из 6 цифр</p>
+        <input class="duel-code-input" id="duelCodeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" required>
+        <button class="action-button full" type="submit">${DUEL_COPY.join}</button>
+      </form>
+    </section>
+  `, "duel-app");
+  document.querySelector("#soundMount").append(soundButton());
+  document.querySelector("#backMatchPrep").addEventListener("click", () => {
+    playSound("click");
+    showMatchPrepScreen();
+  });
+  const input = document.querySelector("#duelCodeInput");
+  input.addEventListener("input", () => {
+    input.value = input.value.replace(/\D/g, "").slice(0, 6);
+  });
+  document.querySelector("#joinDuelForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    playSound("click");
+    const button = event.currentTarget.querySelector("button");
+    button.disabled = true;
+    button.textContent = DUEL_COPY.warming;
+    try {
+      const room = await joinDuelRoom(input.value);
+      if (room) {
+        state.duel = { room, side: getDuelSide(room), resultSubmitted: false };
+        showDuelVsScreen(room);
+        return;
+      }
+    } catch {
+      showGlobalToast("Связь с кухней пропала, пробуем ещё раз");
+    }
+    button.disabled = false;
+    button.textContent = DUEL_COPY.join;
+  });
+  after(80, () => input.focus({ preventScroll: true }));
+}
+
+function startDuelRoomPolling(roomCode, onRoom) {
+  let stopped = false;
+  const poll = async () => {
+    if (stopped) return;
+    try {
+      const room = await fetchDuelRoom(roomCode);
+      if (room) onRoom(room);
+    } catch {
+      showGlobalToast("Связь с кухней пропала, пробуем ещё раз");
+    }
+  };
+  const interval = setInterval(poll, 1400);
+  state.cleanup.push(() => {
+    stopped = true;
+    clearInterval(interval);
+  });
+  poll();
+}
+
+function showDuelVsScreen(room) {
+  const side = getDuelSide(room);
+  const opponentSide = getDuelOpponentSide(side);
+  const me = getDuelPlayerProfile(room, side) || normalizeDuelProfile();
+  const rival = getDuelPlayerProfile(room, opponentSide);
+  const startsAt = room.starts_at ? new Date(room.starts_at).getTime() : Date.now() + 2500;
+  state.duel = { room, side, resultSubmitted: false };
+  setDuelBackground(ASSETS.duel.vsBg);
+  render(`
+    <section class="screen duel-vs-screen">
+      <div class="duel-vs-card">
+        <div class="duel-contender">
+          ${duelAvatar(me)}
+          <strong>${escapeHtml(me?.name || "Ты")}</strong>
+          <span>готовит ход</span>
+        </div>
+        <div class="duel-countdown" id="duelCountdown">3</div>
+        <div class="duel-contender">
+          ${duelAvatar(rival)}
+          <strong>${escapeHtml(rival?.name || "Соперник")}</strong>
+          <span>уже на кухне</span>
+        </div>
+      </div>
+      <p class="duel-vs-caption">${DUEL_COPY.title}</p>
+    </section>
+  `, "duel-app");
+  playSound("score");
+  const countdown = document.querySelector("#duelCountdown");
+  const tick = () => {
+    const left = Math.max(0, startsAt - Date.now());
+    const number = Math.max(1, Math.ceil(left / 1000));
+    if (countdown) countdown.textContent = left <= 300 ? "Старт!" : String(number);
+    if (left <= 0) {
+      clearInterval(interval);
+      if (side === "host") {
+        patchDuelRoom(room.room_code, { status: "started", starts_at: room.starts_at || new Date().toISOString() }, "return=minimal").catch(() => {});
+      }
+      startDuelMatch(room);
+    }
+  };
+  const interval = setInterval(tick, 180);
+  state.cleanup.push(() => clearInterval(interval));
+  tick();
+}
+
+function startDuelMatch(room) {
+  state.difficulty = room.difficulty;
+  localStorage.setItem("demiDifficulty", room.difficulty);
+  startMatchGame({ duel: true, room });
+}
+
+function setDuelBackground(src) {
+  app.style.setProperty("--screen-bg", `url("${src}")`);
+}
+
+function duelPlayerBadge(profile, label, pending = false) {
+  return `
+    <div class="duel-player-badge ${pending ? "pending" : ""}">
+      ${duelAvatar(profile)}
+      <strong>${escapeHtml(profile?.name || "Соперник")}</strong>
+      <span>${escapeHtml(label)}</span>
+    </div>
+  `;
+}
+
+function duelAvatar(profile) {
+  const avatar = PROFILE_AVATARS[normalizeAvatarId(profile?.avatar_id)] || PROFILE_AVATARS.airfryer;
+  return `<img class="duel-avatar" src="${avatar.src}" alt="">`;
+}
+
+function formatTime(secondsValue) {
+  const seconds = Math.max(0, Math.ceil(Number(secondsValue) || 0));
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return `${minutes}:${String(rest).padStart(2, "0")}`;
+}
+
+function ensureMatchTileIdFromBoard(board) {
+  const maxId = (Array.isArray(board) ? board : []).reduce((max, tile) => {
+    const value = Number(String(tile?.id || "").replace(/^match-/, ""));
+    return Number.isFinite(value) ? Math.max(max, value) : max;
+  }, matchTileId);
+  matchTileId = Math.max(matchTileId, maxId);
+}
+
+function getDuelProgressPayload(game) {
+  const goalsLeft = Object.values(game.goals).reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0);
+  return {
+    score: state.score,
+    goals_left: goalsLeft,
+    goals_total: game.goalTotal,
+    goals_closed: goalsLeft <= 0,
+  };
+}
+
+function renderDuelRivalPill(room) {
+  const pill = document.querySelector("#duelRivalPill");
+  if (!pill) return;
+  const opponentSide = getDuelOpponentSide(getDuelSide(room));
+  const profile = getDuelPlayerProfile(room, opponentSide);
+  const progress = opponentSide === "host" ? room.host_progress : room.guest_progress;
+  pill.innerHTML = `
+    ${duelAvatar(profile)}
+    <span>${escapeHtml(profile?.name || "Соперник")}</span>
+    <strong>${Math.max(0, Number(progress?.score) || 0)}</strong>
+  `;
+  if (progress?.goals_closed) {
+    pill.classList.add("closed");
+  }
+}
+
+function showDuelResultWaiting() {
+  const room = state.duel?.room;
+  if (!room) {
+    showMatchPrepScreen();
+    return;
+  }
+  setDuelBackground(ASSETS.duel.drawBg);
+  render(`
+    <section class="screen duel-result-screen">
+      <div class="duel-room-card loading">
+        <h2>${DUEL_COPY.counting}</h2>
+        <p>Ждём, пока второй повар отдаст поднос</p>
+        <div class="duel-loader"></div>
+      </div>
+    </section>
+  `, "duel-app");
+  startDuelRoomPolling(room.room_code, (freshRoom) => {
+    state.duel.room = freshRoom;
+    if (freshRoom.host_result && freshRoom.guest_result) showDuelResultScreen(freshRoom);
+  });
+  after(9000, async () => {
+    const freshRoom = await fetchDuelRoom(room.room_code).catch(() => null);
+    if (freshRoom) showDuelResultScreen(freshRoom);
+  });
+}
+
+function showDuelResultScreen(room) {
+  clearRuntime();
+  state.screen = "duelResult";
+  const side = getDuelSide(room);
+  const opponentSide = getDuelOpponentSide(side);
+  const myProfile = getDuelPlayerProfile(room, side) || normalizeDuelProfile();
+  const rivalProfile = getDuelPlayerProfile(room, opponentSide) || {};
+  const myResult = side === "host" ? room.host_result : room.guest_result;
+  const rivalResult = opponentSide === "host" ? room.host_result : room.guest_result;
+  const verdict = getDuelVerdict(myResult, rivalResult);
+  const bg = verdict.tone === "win"
+    ? ASSETS.duel.victoryBg
+    : verdict.tone === "lose"
+      ? ASSETS.duel.defeatBg
+      : ASSETS.duel.drawBg;
+  setDuelBackground(bg);
+  render(`
+    <section class="screen duel-result-screen">
+      <div class="top-row">
+        <button class="back-button" type="button" id="backMatchPrep">←</button>
+        <div id="soundMount"></div>
+      </div>
+      <div class="duel-result-hero">
+        <img src="${getDuelResultCharacter(verdict.tone)}" alt="">
+      </div>
+      <div class="duel-result-card ${verdict.tone}">
+        <h2>${escapeHtml(verdict.title)}</h2>
+        <p>${escapeHtml(verdict.phrase)}</p>
+        <div class="duel-score-table">
+          ${duelScoreRow(myProfile, myResult, verdict.myPlace, "Ты")}
+          ${duelScoreRow(rivalProfile, rivalResult, verdict.rivalPlace, "Соперник")}
+        </div>
+      </div>
+      <div class="result-actions">
+        <button class="action-button full" type="button" id="duelRematch">${DUEL_COPY.rematch}</button>
+        <button class="action-button secondary full" type="button" id="backToMatch">${DUEL_COPY.back}</button>
+      </div>
+    </section>
+  `, "duel-app");
+  document.querySelector("#soundMount").append(soundButton());
+  const back = () => {
+    playSound("click");
+    state.matchMode = "duel";
+    showMatchPrepScreen();
+  };
+  document.querySelector("#backMatchPrep").addEventListener("click", back);
+  document.querySelector("#backToMatch").addEventListener("click", back);
+  document.querySelector("#duelRematch").addEventListener("click", async () => {
+    playSound("click");
+    state.difficulty = room.difficulty;
+    await showCreateDuelRoomScreen();
+  });
+  if (verdict.tone === "win") {
+    playSound("win");
+    confetti();
+  } else if (verdict.tone === "lose") {
+    playSound("gameOver");
+  } else {
+    playSound("score");
+  }
+}
+
+function getDuelVerdict(myResult = {}, rivalResult = {}) {
+  const myClosed = Boolean(myResult?.goals_closed);
+  const rivalClosed = Boolean(rivalResult?.goals_closed);
+  const myScore = Math.max(0, Number(myResult?.score) || 0);
+  const rivalScore = Math.max(0, Number(rivalResult?.score) || 0);
+  if (myClosed && !rivalClosed) {
+    return { tone: "win", title: DUEL_COPY.win, phrase: "Ты закрыла цели, кухня аплодирует.", myPlace: 1, rivalPlace: 2 };
+  }
+  if (!myClosed && rivalClosed) {
+    return { tone: "lose", title: "Соперник закрыл цели", phrase: "Твой поднос был близко. Реванш просится сам.", myPlace: 2, rivalPlace: 1 };
+  }
+  if (myScore === rivalScore) {
+    return { tone: "draw", title: DUEL_COPY.draw, phrase: "Кухня не смогла выбрать любимчика.", myPlace: 1, rivalPlace: 1 };
+  }
+  const iLead = myScore > rivalScore;
+  if (myClosed && rivalClosed) {
+    return iLead
+      ? { tone: "win", title: DUEL_COPY.winByScore, phrase: "Обе цели закрыты, но твой счёт вкуснее.", myPlace: 1, rivalPlace: 2 }
+      : { tone: "lose", title: DUEL_COPY.goalsClosedButSecond, phrase: "Цели закрыты, но соперник собрал больше очков.", myPlace: 2, rivalPlace: 1 };
+  }
+  return iLead
+    ? { tone: "draw", title: DUEL_COPY.placedFirst, phrase: "Победа не засчитана без целей, но по очкам ты первая.", myPlace: 1, rivalPlace: 2 }
+    : { tone: "lose", title: DUEL_COPY.placedSecond, phrase: "Цели не закрыты, а соперник оказался выше по очкам.", myPlace: 2, rivalPlace: 1 };
+}
+
+function duelScoreRow(profile, result = {}, place, fallbackName) {
+  return `
+    <div class="duel-score-row ${place === 1 ? "leader" : ""}">
+      ${duelAvatar(profile)}
+      <div>
+        <strong>${escapeHtml(profile?.name || fallbackName)}</strong>
+        <span>${result?.goals_closed ? "цели закрыты" : "цели не закрыты"}</span>
+      </div>
+      <em>${place} место</em>
+      <b>${Math.max(0, Number(result?.score) || 0)}</b>
+    </div>
+  `;
+}
+
+function getDuelResultCharacter(tone) {
+  const avatar = normalizeAvatarId(state.playerProfile?.avatar_id);
+  if (avatar === "blender") return tone === "lose" ? ASSETS.blender.sad : ASSETS.blender.happy;
+  if (avatar === "coffee") return tone === "lose" ? ASSETS.coffee.sad : ASSETS.coffee.happy;
+  return tone === "lose" ? ASSETS.airfryer.sad : ASSETS.airfryer.happy;
 }
 
 function renderInventoryPreview() {
@@ -2268,24 +2983,54 @@ function renderInventoryPreview() {
   `).join("");
 }
 
-function startMatchGame() {
-  gameShell("match", COPY.match.title, "Собирай цели за ходы");
+function startMatchGame(options = {}) {
+  const duelRoom = options.duel ? normalizeDuelRoom(options.room) : null;
+  const isDuel = Boolean(duelRoom);
+  const duelSide = isDuel ? getDuelSide(duelRoom) : "";
+  const duelOpponent = isDuel ? getDuelOpponentProfile(duelRoom) : null;
+  const duelHud = isDuel ? `
+    <div class="duel-timer-pill" id="duelTimerPill">${formatTime(getDuelTimerSeconds(duelRoom.difficulty))}</div>
+    <div class="duel-rival-pill" id="duelRivalPill">
+      ${duelAvatar(duelOpponent)}
+      <span>${escapeHtml(duelOpponent?.name || "Соперник")}</span>
+      <strong>0</strong>
+    </div>
+  ` : "";
+  gameShell("match", isDuel ? DUEL_COPY.title : COPY.match.title, isDuel ? "Закрой цели до сигнала кухни" : "Собирай цели за ходы", duelHud);
   state.matchSessionId = makeId("session");
   state.resultSubmitted = false;
+  if (isDuel) {
+    state.duel = {
+      room: duelRoom,
+      side: duelSide,
+      resultSubmitted: false,
+    };
+    const pauseButton = document.querySelector("#pauseButton");
+    if (pauseButton) pauseButton.hidden = true;
+  }
   const area = document.querySelector("#playArea");
   const button = document.querySelector("#mainAction");
-  const difficulty = DIFFICULTIES[state.difficulty] || DIFFICULTIES.normal;
+  const difficulty = DIFFICULTIES[isDuel ? duelRoom.difficulty : state.difficulty] || DIFFICULTIES.normal;
   const size = 7;
   const tileTypes = Object.keys(ASSETS.match.tiles);
+  const random = isDuel ? createSeededRandom(duelRoom.seed) : Math.random;
+  const pickRandom = (items) => items[Math.floor(random() * items.length)];
   const game = {
-    board: [],
-    goals: buildMatchGoals(tileTypes, difficulty),
+    board: isDuel ? cloneMatchBoard(duelRoom.board) : [],
+    goals: isDuel ? { ...duelRoom.goals } : buildMatchGoals(tileTypes, difficulty),
     goalTotal: 0,
-    moves: difficulty.matchMoves,
+    moves: isDuel ? 999 : difficulty.matchMoves,
     selected: null,
     selectedBooster: null,
+    duel: isDuel,
+    duelInventory: isDuel ? { ...(duelRoom.booster_kit || {}) } : null,
+    duelEndsAt: isDuel ? Date.now() + getDuelTimerSeconds(duelRoom.difficulty) * 1000 : 0,
+    duelLastProgressAt: 0,
+    random,
+    pickRandom,
     locked: false,
     ended: false,
+    settlingFinish: false,
     extraUsed: false,
     pointerStart: null,
     dragTarget: null,
@@ -2305,26 +3050,40 @@ function startMatchGame() {
   document.querySelector(".progress-panel")?.classList.add("match-progress");
   document.querySelector(".game-controls").insertAdjacentHTML("afterbegin", `<div class="booster-bar" id="boosterBar"></div>`);
   document.querySelector("#matchCharacter").append(safeImg(ASSETS.match.normal, "Кубики сошлись"));
-  button.classList.add("shop-open-button");
-  button.innerHTML = `<img src="${ASSETS.buttons.shop}" alt=""> Магазин`;
-  button.addEventListener("click", () => {
-    playSound("click");
-    openShopModal();
-  });
+  if (isDuel) {
+    button.hidden = true;
+    area.insertAdjacentHTML("beforeend", `<div class="duel-start-overlay" id="duelStartOverlay"><img src="${ASSETS.duel.startBurst}" alt=""><strong>${DUEL_COPY.started}</strong></div>`);
+    after(1300, () => document.querySelector("#duelStartOverlay")?.remove());
+  } else {
+    button.classList.add("shop-open-button");
+    button.innerHTML = `<img src="${ASSETS.buttons.shop}" alt=""> Магазин`;
+    button.addEventListener("click", () => {
+      playSound("click");
+      openShopModal();
+    });
+  }
 
   function init() {
-    game.board = createMatchBoard(size, tileTypes);
-    addMatchBlockers(game.board, size, difficulty.matchBlockers);
-    let guard = 0;
-    while (!hasAnyMatchMove(game.board, size) && guard < 12) {
+    if (!isDuel) {
       game.board = createMatchBoard(size, tileTypes);
       addMatchBlockers(game.board, size, difficulty.matchBlockers);
-      guard += 1;
+      let guard = 0;
+      while (!hasAnyMatchMove(game.board, size) && guard < 12) {
+        game.board = createMatchBoard(size, tileTypes);
+        addMatchBlockers(game.board, size, difficulty.matchBlockers);
+        guard += 1;
+      }
+    } else {
+      ensureMatchTileIdFromBoard(game.board);
     }
     setScore(0);
     renderMatch();
     refreshBoosterBar();
     updateMatchHud();
+    if (isDuel) {
+      startDuelTimers();
+      pushDuelProgress(true);
+    }
   }
 
   function renderMatch(mode = "") {
@@ -2546,7 +3305,7 @@ function startMatchGame() {
     renderMatch();
     resolveMatches(matches).then(() => {
       game.locked = false;
-      if (!hasAnyMatchMove(game.board, size) && !isMatchWon(game.goals)) reshuffleBoard();
+      if (game.moves > 0 && !hasAnyMatchMove(game.board, size) && !isMatchWon(game.goals)) reshuffleBoard();
       renderMatch();
       updateMatchHud();
       checkMatchFinish();
@@ -2561,7 +3320,7 @@ function startMatchGame() {
       await clearMatchGroups(matches, combo);
       renderMatch();
       await delay(80);
-      dropMatchTiles(game.board, size, tileTypes);
+      dropMatchTiles(game.board, size, tileTypes, game.pickRandom);
       renderMatch("settle");
       await delay(260);
       matches = findMatchGroups(game.board, size);
@@ -2666,7 +3425,7 @@ function startMatchGame() {
   function useTargetBooster(index) {
     const key = game.selectedBooster;
     const tile = game.board[index];
-    if (!key || !tile || (state.wallet.inventory[key] || 0) <= 0) return;
+    if (!key || !tile || getMatchBoosterCount(key) <= 0) return;
     const clearSet = new Set();
     if (key === "hammer") clearSet.add(index);
     if (key === "star") {
@@ -2696,8 +3455,7 @@ function startMatchGame() {
         if (candidate?.type === tile.type) clearSet.add(idx);
       });
     }
-    state.wallet.inventory[key] -= 1;
-    saveWallet();
+    spendMatchBooster(key);
     game.selectedBooster = null;
     refreshBoosterBar();
     applyBoosterClear(clearSet, key);
@@ -2725,12 +3483,13 @@ function startMatchGame() {
     renderMatch();
     delay(80)
       .then(() => {
-        dropMatchTiles(game.board, size, tileTypes);
+        dropMatchTiles(game.board, size, tileTypes, game.pickRandom);
         renderMatch("settle");
         return delay(260).then(() => resolveMatches());
       })
       .then(() => {
         game.locked = false;
+        if (game.moves > 0 && !hasAnyMatchMove(game.board, size) && !isMatchWon(game.goals)) reshuffleBoard();
         renderMatch();
         updateMatchHud();
         checkMatchFinish();
@@ -2738,10 +3497,9 @@ function startMatchGame() {
   }
 
   function activateInstantBooster(key) {
-    if ((state.wallet.inventory[key] || 0) <= 0 || game.locked || game.ended) return;
+    if (getMatchBoosterCount(key) <= 0 || game.locked || game.ended) return;
     if (key === "shuffle") {
-      state.wallet.inventory[key] -= 1;
-      saveWallet();
+      spendMatchBooster(key);
       reshuffleBoard();
       showPhrase(area, "Поле встряхнулось!", "50%", "18%");
       playSound("score");
@@ -2749,8 +3507,7 @@ function startMatchGame() {
       refreshBoosterBar();
     }
     if (key === "extraMoves") {
-      state.wallet.inventory[key] -= 1;
-      saveWallet();
+      spendMatchBooster(key);
       game.moves += 5;
       showPhrase(area, "+5 ходов, красота!", "50%", "18%");
       playSound("score");
@@ -2762,20 +3519,25 @@ function startMatchGame() {
   function reshuffleBoard() {
     const pieces = game.board.filter((tile) => tile && tile.type !== "blocker").map((tile) => ({ ...tile, special: null }));
     for (let i = pieces.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(game.random() * (i + 1));
       [pieces[i], pieces[j]] = [pieces[j], pieces[i]];
     }
     let cursor = 0;
     game.board = game.board.map((tile) => (tile?.type === "blocker" ? tile : pieces[cursor++]));
     let guard = 0;
     while (findMatchGroups(game.board, size).length && guard < 8) {
-      game.board = game.board.map((tile) => (tile?.type === "blocker" ? tile : makeMatchTile(randomItem(tileTypes))));
+      game.board = game.board.map((tile) => (tile?.type === "blocker" ? tile : makeMatchTile(game.pickRandom(tileTypes))));
       guard += 1;
     }
   }
 
   function updateMatchHud() {
-    setProgress(remainingGoalRatio(game.goals, game.goalTotal), `Ходы: ${game.moves} · осталось собрать цели`);
+    if (isDuel) {
+      const left = Math.max(0, Math.ceil((game.duelEndsAt - Date.now()) / 1000));
+      setProgress(remainingGoalRatio(game.goals, game.goalTotal), `Кухня: ${formatTime(left)} · осталось собрать цели`);
+    } else {
+      setProgress(remainingGoalRatio(game.goals, game.goalTotal), `Ходы: ${game.moves} · осталось собрать цели`);
+    }
     document.querySelector("#matchGoals").innerHTML = Object.entries(game.goals).map(([type, left]) => `
       <div class="goal-chip ${left <= 0 ? "done" : ""}">
         <img src="${ASSETS.match.tiles[type]}" alt="">
@@ -2786,22 +3548,109 @@ function startMatchGame() {
     if (character) {
       character.src = isMatchWon(game.goals) ? ASSETS.match.happy : game.moves <= 5 ? ASSETS.match.sad : ASSETS.match.normal;
     }
+    if (isDuel) pushDuelProgress();
   }
 
   function checkMatchFinish() {
-    if (game.ended) return;
+    if (game.ended || game.settlingFinish) return;
+    const pendingMatches = findMatchGroups(game.board, size);
+    if (pendingMatches.length) {
+      game.settlingFinish = true;
+      game.locked = true;
+      resolveMatches(pendingMatches).then(() => {
+        game.settlingFinish = false;
+        game.locked = false;
+        renderMatch();
+        updateMatchHud();
+        checkMatchFinish();
+      });
+      return;
+    }
     if (isMatchWon(game.goals)) {
+      if (isDuel) {
+        updateMatchHud();
+        return;
+      }
       game.ended = true;
       playSound("win");
       confetti();
       after(900, () => showResult("match", state.score, "win"));
       return;
     }
-    if (game.moves <= 0) {
+    if (!isDuel && game.moves <= 0) {
       game.ended = true;
       playSound("gameOver");
       after(850, () => showResult("match", state.score, "lose"));
     }
+  }
+
+  function startDuelTimers() {
+    const timer = setInterval(() => {
+      if (game.ended) return;
+      const left = Math.max(0, Math.ceil((game.duelEndsAt - Date.now()) / 1000));
+      const pill = document.querySelector("#duelTimerPill");
+      if (pill) {
+        pill.textContent = formatTime(left);
+        pill.classList.toggle("urgent", left <= 10);
+      }
+      document.querySelector(".is-game")?.classList.toggle("duel-final-seconds", left <= 10);
+      if (left === 10) {
+        showPhrase(area, DUEL_COPY.finalSeconds, "50%", "14%");
+        playSound("fail");
+      }
+      updateMatchHud();
+      if (left <= 0) finishDuelMatch();
+    }, 500);
+    state.cleanup.push(() => clearInterval(timer));
+    const rivalPoll = setInterval(async () => {
+      if (game.ended || !state.duel?.room?.room_code) return;
+      try {
+        const freshRoom = await fetchDuelRoom(state.duel.room.room_code);
+        if (freshRoom) {
+          state.duel.room = freshRoom;
+          renderDuelRivalPill(freshRoom);
+        }
+      } catch {
+        // The local round keeps running; the final submit will retry the room state.
+      }
+    }, 2400);
+    state.cleanup.push(() => clearInterval(rivalPoll));
+  }
+
+  function pushDuelProgress(force = false) {
+    if (!isDuel) return;
+    const now = Date.now();
+    if (!force && now - game.duelLastProgressAt < 1300) return;
+    game.duelLastProgressAt = now;
+    updateDuelProgress(getDuelProgressPayload(game));
+  }
+
+  function finishDuelMatch() {
+    if (game.ended) return;
+    game.ended = true;
+    game.locked = true;
+    pushDuelProgress(true);
+    playSound(isMatchWon(game.goals) ? "win" : "gameOver");
+    showPhrase(area, DUEL_COPY.timeUp, "50%", "14%");
+    after(750, async () => {
+      const result = getDuelProgressPayload(game);
+      await submitDuelResult(result).catch(() => null);
+      showDuelResultWaiting();
+    });
+  }
+
+  function getMatchBoosterCount(key) {
+    if (isDuel) return Math.max(0, Number(game.duelInventory?.[key]) || 0);
+    return Math.max(0, Number(state.wallet.inventory[key]) || 0);
+  }
+
+  function spendMatchBooster(key) {
+    if (isDuel) {
+      game.duelInventory[key] = Math.max(0, (game.duelInventory[key] || 0) - 1);
+      return;
+    }
+    state.wallet.inventory[key] -= 1;
+    saveWallet();
   }
 
   window.__currentMatchGame = {
@@ -2816,6 +3665,8 @@ function startMatchGame() {
       refreshBoosterBar();
     },
     getSelectedBooster: () => game.selectedBooster,
+    getBoosterCount: (key) => getMatchBoosterCount(key),
+    isDuel: () => isDuel,
   };
   state.cleanup.push(() => {
     if (window.__currentMatchGame) delete window.__currentMatchGame;
@@ -2831,8 +3682,17 @@ function refreshBoosterBar() {
     return;
   }
   const selected = window.__currentMatchGame?.getSelectedBooster?.() || null;
-  bar.innerHTML = Object.entries(BOOSTERS).map(([key, booster]) => {
-    const count = state.wallet.inventory[key] || 0;
+  const isTemporaryKit = Boolean(window.__currentMatchGame?.isDuel?.());
+  const entries = Object.entries(BOOSTERS);
+  if (isTemporaryKit && entries.every(([key]) => window.__currentMatchGame.getBoosterCount(key) <= 0)) {
+    bar.hidden = true;
+    return;
+  }
+  bar.hidden = false;
+  bar.innerHTML = entries.map(([key, booster]) => {
+    const count = window.__currentMatchGame?.getBoosterCount
+      ? window.__currentMatchGame.getBoosterCount(key)
+      : state.wallet.inventory[key] || 0;
     return `
       <button class="booster-button ${selected === key ? "active" : ""}" type="button" data-booster="${key}" ${count <= 0 ? "disabled" : ""} aria-label="${booster.title}">
         <img src="${ASSETS.boosters[key]}" alt="">
@@ -2848,18 +3708,18 @@ function refreshBoosterBar() {
   });
 }
 
-function buildMatchGoals(tileTypes, difficulty) {
-  const shuffled = [...tileTypes].sort(() => Math.random() - 0.5);
+function buildMatchGoals(tileTypes, difficulty, random = Math.random) {
+  const shuffled = [...tileTypes].sort(() => random() - 0.5);
   return Object.fromEntries(shuffled.slice(0, difficulty.matchGoals).map((type, index) => [type, difficulty.matchGoalBase + index * 2]));
 }
 
-function createMatchBoard(size, tileTypes) {
+function createMatchBoard(size, tileTypes, pick = randomItem) {
   const board = [];
   for (let i = 0; i < size * size; i += 1) {
-    let type = randomItem(tileTypes);
+    let type = pick(tileTypes);
     let guard = 0;
     while (wouldCreateStartMatch(board, i, type, size) && guard < 20) {
-      type = randomItem(tileTypes);
+      type = pick(tileTypes);
       guard += 1;
     }
     board.push(makeMatchTile(type));
@@ -2935,7 +3795,7 @@ function findMatchGroups(board, size) {
   return groups;
 }
 
-function dropMatchTiles(board, size, tileTypes) {
+function dropMatchTiles(board, size, tileTypes, pick = randomItem) {
   for (let col = 0; col < size; col += 1) {
     let segmentEnd = size - 1;
     for (let row = size - 1; row >= -1; row -= 1) {
@@ -2953,7 +3813,7 @@ function dropMatchTiles(board, size, tileTypes) {
         writeRow -= 1;
       });
       for (let r = writeRow; r >= segmentStart; r -= 1) {
-        board[r * size + col] = makeMatchTile(randomItem(tileTypes));
+        board[r * size + col] = makeMatchTile(pick(tileTypes));
       }
       segmentEnd = row - 1;
     }

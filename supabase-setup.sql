@@ -27,6 +27,28 @@ create table if not exists public.scores (
   session_id text not null
 );
 
+create table if not exists public.duel_rooms (
+  room_code text primary key,
+  status text not null default 'waiting',
+  difficulty text not null default 'normal',
+  timer_seconds integer not null default 120,
+  seed text not null,
+  board jsonb not null default '[]'::jsonb,
+  goals jsonb not null default '{}'::jsonb,
+  booster_kit jsonb not null default '{}'::jsonb,
+  host_player_id text not null,
+  guest_player_id text,
+  host_profile jsonb not null default '{}'::jsonb,
+  guest_profile jsonb,
+  host_progress jsonb,
+  guest_progress jsonb,
+  host_result jsonb,
+  guest_result jsonb,
+  starts_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 alter table public.scores
   add column if not exists player_id text,
   add column if not exists score integer not null default 0,
@@ -47,8 +69,15 @@ create index if not exists players_department_rating_idx
 create index if not exists scores_player_created_idx
   on public.scores (player_id, created_at desc);
 
+create index if not exists duel_rooms_status_created_idx
+  on public.duel_rooms (status, created_at desc);
+
+create index if not exists duel_rooms_players_idx
+  on public.duel_rooms (host_player_id, guest_player_id);
+
 alter table public.players enable row level security;
 alter table public.scores enable row level security;
+alter table public.duel_rooms enable row level security;
 
 drop policy if exists "Public leaderboard read" on public.players;
 drop policy if exists "Public player insert" on public.players;
@@ -60,6 +89,9 @@ drop policy if exists "Public scores read" on public.scores;
 drop policy if exists "Public scores insert" on public.scores;
 drop policy if exists "Scores are readable" on public.scores;
 drop policy if exists "Scores are insertable" on public.scores;
+drop policy if exists "Duel rooms are readable" on public.duel_rooms;
+drop policy if exists "Duel rooms are insertable" on public.duel_rooms;
+drop policy if exists "Duel rooms are updatable" on public.duel_rooms;
 
 create policy "Players are readable"
   on public.players for select
@@ -85,4 +117,20 @@ create policy "Scores are readable"
 create policy "Scores are insertable"
   on public.scores for insert
   to anon
+  with check (true);
+
+create policy "Duel rooms are readable"
+  on public.duel_rooms for select
+  to anon
+  using (true);
+
+create policy "Duel rooms are insertable"
+  on public.duel_rooms for insert
+  to anon
+  with check (true);
+
+create policy "Duel rooms are updatable"
+  on public.duel_rooms for update
+  to anon
+  using (true)
   with check (true);
