@@ -1831,38 +1831,6 @@ h2 {
   background: linear-gradient(180deg, #59d77b, #23b65a);
 }
 
-.duel-start-overlay {
-  pointer-events: none;
-}
-
-.duel-start-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 35;
-  display: grid;
-  place-items: center;
-  padding: 22px;
-  text-align: center;
-}
-
-.duel-start-overlay img {
-  position: absolute;
-  width: min(118%, 520px);
-  max-height: 72%;
-  object-fit: contain;
-  animation: duel-burst 1100ms ease-out both;
-}
-
-.duel-start-overlay strong {
-  position: relative;
-  z-index: 1;
-  max-width: 320px;
-  color: #fffdf0;
-  font-size: 28px;
-  line-height: 1;
-  text-shadow: 0 4px 0 rgba(93, 29, 44, 0.34), 0 0 12px rgba(255, 255, 255, 0.62);
-}
-
 .duel-result-screen {
   grid-template-rows: auto minmax(130px, 1fr) auto auto;
   align-content: stretch;
@@ -1988,23 +1956,6 @@ h2 {
 
   50% {
     transform: scale(1.06);
-  }
-}
-
-@keyframes duel-burst {
-  from {
-    opacity: 0;
-    transform: scale(0.72);
-  }
-
-  42% {
-    opacity: 1;
-    transform: scale(1.03);
-  }
-
-  to {
-    opacity: 0;
-    transform: scale(1.18);
   }
 }
 

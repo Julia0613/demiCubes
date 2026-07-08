@@ -104,7 +104,6 @@ const ASSETS = {
     roomBg: "./assets/images/duel_room_bg.png",
     codeTicket: "./assets/images/duel_code_ticket.png",
     vsBg: "./assets/images/duel_vs_bg.png",
-    startBurst: "./assets/images/duel_start_burst.png",
     victoryBg: "./assets/images/duel_victory_bg.png",
     defeatBg: "./assets/images/duel_defeat_bg.png",
     drawBg: "./assets/images/duel_draw_bg.png",
@@ -480,13 +479,13 @@ const DUEL_COPY = {
   waiting: "Ждём второго повара...",
   rivalReady: "Соперник уже на кухне!",
   warming: "Кухня почти готова...",
-  started: "Кулинарный поединок начался!",
+  started: "Кухня стартует!",
   finalSeconds: "Последние 10 секунд!",
   timeUp: "Время вышло!",
-  counting: "Кухня считает очки...",
+  counting: "Кухня считает итоги...",
   win: "Цели закрыты — кухня твоя!",
-  winByScore: "Цели закрыты, ты выше по очкам!",
-  goalsClosedButSecond: "Цели закрыты, но соперник обошёл по очкам",
+  winByTime: "Ты закрыла цели быстрее!",
+  goalsClosedButSecond: "Соперник закрыл цели быстрее",
   placedFirst: "Цели не закрыты, но ты выше по очкам",
   placedSecond: "Соперник набрал больше",
   draw: "Идеальная ничья",
@@ -3067,6 +3066,24 @@ function renderDuelRivalPill(room) {
   }
 }
 
+function getDuelSideState(room, side) {
+  return {
+    profile: getDuelPlayerProfile(room, side),
+    progress: side === "host" ? room?.host_progress : room?.guest_progress,
+    result: side === "host" ? room?.host_result : room?.guest_result,
+  };
+}
+
+function hasDuelSideClosedGoals(room, side) {
+  const sideState = getDuelSideState(room, side);
+  return Boolean(sideState.result?.goals_closed || sideState.progress?.goals_closed);
+}
+
+function getDuelFinishTime(result = {}) {
+  const time = Date.parse(result?.finished_at || "");
+  return Number.isFinite(time) ? time : 0;
+}
+
 function showDuelResultWaiting() {
   const room = state.duel?.room;
   if (!room) {
@@ -3167,15 +3184,24 @@ function getDuelVerdict(myResult = {}, rivalResult = {}) {
   if (!myClosed && rivalClosed) {
     return { tone: "lose", title: "Соперник закрыл цели", phrase: "Твой поднос был близко. Реванш просится сам.", myPlace: 2, rivalPlace: 1 };
   }
+  if (myClosed && rivalClosed) {
+    const myFinish = getDuelFinishTime(myResult);
+    const rivalFinish = getDuelFinishTime(rivalResult);
+    if (myFinish && rivalFinish) {
+      const diff = myFinish - rivalFinish;
+      if (Math.abs(diff) <= 750) {
+        return { tone: "draw", title: DUEL_COPY.draw, phrase: "Обе кухни закрыли цели почти одновременно.", myPlace: 1, rivalPlace: 1 };
+      }
+      return diff < 0
+        ? { tone: "win", title: DUEL_COPY.winByTime, phrase: "Ты закрыла цели первой. Очки уходят в рейтинг.", myPlace: 1, rivalPlace: 2, ratingWin: true }
+        : { tone: "lose", title: DUEL_COPY.goalsClosedButSecond, phrase: "Цели закрыты, но соперник успел раньше.", myPlace: 2, rivalPlace: 1 };
+    }
+    return { tone: "draw", title: DUEL_COPY.draw, phrase: "Обе кухни закрыли цели.", myPlace: 1, rivalPlace: 1 };
+  }
   if (myScore === rivalScore) {
     return { tone: "draw", title: DUEL_COPY.draw, phrase: "Кухня не смогла выбрать любимчика.", myPlace: 1, rivalPlace: 1 };
   }
   const iLead = myScore > rivalScore;
-  if (myClosed && rivalClosed) {
-    return iLead
-      ? { tone: "win", title: DUEL_COPY.winByScore, phrase: "Обе цели закрыты, но твой счёт вкуснее.", myPlace: 1, rivalPlace: 2, ratingWin: true }
-      : { tone: "lose", title: DUEL_COPY.goalsClosedButSecond, phrase: "Цели закрыты, но соперник собрал больше очков.", myPlace: 2, rivalPlace: 1 };
-  }
   return iLead
     ? { tone: "draw", title: DUEL_COPY.placedFirst, phrase: "Победа не засчитана без целей, но по очкам ты первая.", myPlace: 1, rivalPlace: 2 }
     : { tone: "lose", title: DUEL_COPY.placedSecond, phrase: "Цели не закрыты, а соперник оказался выше по очкам.", myPlace: 2, rivalPlace: 1 };
@@ -3283,8 +3309,7 @@ function startMatchGame(options = {}) {
   document.querySelector("#matchCharacter").append(safeImg(ASSETS.match.normal, "Кубики сошлись"));
   if (isDuel) {
     button.hidden = true;
-    area.insertAdjacentHTML("beforeend", `<div class="duel-start-overlay" id="duelStartOverlay"><img src="${ASSETS.duel.startBurst}" alt=""><strong>${DUEL_COPY.started}</strong></div>`);
-    after(1300, () => document.querySelector("#duelStartOverlay")?.remove());
+    after(260, () => showPhrase(area, DUEL_COPY.started, "78%", "16%"));
   } else {
     button.classList.add("shop-open-button");
     button.innerHTML = `<img src="${ASSETS.buttons.shop}" alt=""> Магазин`;
@@ -3800,6 +3825,7 @@ function startMatchGame(options = {}) {
     if (isMatchWon(game.goals)) {
       if (isDuel) {
         updateMatchHud();
+        finishDuelMatch("goals_closed");
         return;
       }
       game.ended = true;
@@ -3835,6 +3861,10 @@ function startMatchGame(options = {}) {
         if (freshRoom) {
           state.duel.room = freshRoom;
           renderDuelRivalPill(freshRoom);
+          const opponentSide = getDuelOpponentSide(state.duel.side);
+          if (hasDuelSideClosedGoals(freshRoom, opponentSide)) {
+            finishDuelMatch("opponent_closed", freshRoom);
+          }
         }
       } catch {
         // The local round keeps running; the final submit will retry the room state.
@@ -3851,14 +3881,21 @@ function startMatchGame(options = {}) {
     updateDuelProgress(getDuelProgressPayload(game));
   }
 
-  function finishDuelMatch() {
+  function finishDuelMatch(reason = "time_up", roomOverride = null) {
     if (game.ended) return;
+    if (roomOverride) state.duel.room = roomOverride;
     game.ended = true;
     game.locked = true;
     pushDuelProgress(true);
-    playSound(isMatchWon(game.goals) ? "win" : "gameOver");
-    showPhrase(area, DUEL_COPY.timeUp, "50%", "14%");
-    after(750, async () => {
+    const closedGoals = isMatchWon(game.goals);
+    const phrase = reason === "opponent_closed"
+      ? "Соперник закрыл цели"
+      : closedGoals
+        ? "Цели закрыты!"
+        : DUEL_COPY.timeUp;
+    playSound(closedGoals ? "win" : "gameOver");
+    showPhrase(area, phrase, "78%", "16%", reason === "opponent_closed" ? "bad" : "");
+    after(reason === "goals_closed" ? 520 : 750, async () => {
       const result = getDuelProgressPayload(game);
       await submitDuelResult(result).catch(() => null);
       showDuelResultWaiting();
