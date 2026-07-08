@@ -33,7 +33,6 @@ const ASSETS = {
     fill50: "./assets/images/blender-fill-50.png",
     fill75: "./assets/images/blender-fill-75.png",
     fill100: "./assets/images/blender-fill-100.png",
-    smoothie: "./assets/images/smoothie.png",
   },
   coffee: {
     normal: "./assets/images/coffee-normal.png",
@@ -59,7 +58,6 @@ const ASSETS = {
     blueberry: "./assets/images/blueberry.png",
     mint: "./assets/images/mint.png",
     ice: "./assets/images/ice.png",
-    smoothie: "./assets/images/smoothie.png",
     bomb: "./assets/images/bomb.png",
     tnt: "./assets/images/tnt.png",
     report: "./assets/images/list.png",
@@ -85,7 +83,11 @@ const ASSETS = {
   },
   economy: {
     coin: "./assets/images/coin.png",
-    rewardBurst: "./assets/images/coin_reward_burst.png",
+  },
+  profileIcons: {
+    airfryer: "./assets/images/aerogrill_icon_selfie.png",
+    blender: "./assets/images/blender_icon_selfie.png",
+    coffee: "./assets/images/coffemachine_icon_selfie.png",
   },
   boosters: {
     hammer: "./assets/images/booster_hammer.png",
@@ -103,8 +105,6 @@ const ASSETS = {
     codeTicket: "./assets/images/duel_code_ticket.png",
     vsBg: "./assets/images/duel_vs_bg.png",
     startBurst: "./assets/images/duel_start_burst.png",
-    finalSecondsFrame: "./assets/images/duel_final_seconds_frame.png",
-    rivalComboPop: "./assets/images/duel_rival_combo_pop.png",
     victoryBg: "./assets/images/duel_victory_bg.png",
     defeatBg: "./assets/images/duel_defeat_bg.png",
     drawBg: "./assets/images/duel_draw_bg.png",
@@ -274,9 +274,9 @@ const SUPABASE_TABLES = {
   duelRooms: "duel_rooms",
 };
 const PROFILE_AVATARS = {
-  airfryer: { label: "Аэрогриль", src: ASSETS.airfryer.normal },
-  blender: { label: "Блендер", src: ASSETS.blender.normal },
-  coffee: { label: "Кофемашина", src: ASSETS.coffee.normal },
+  airfryer: { label: "Аэрогриль", src: ASSETS.airfryer.normal, icon: ASSETS.profileIcons.airfryer },
+  blender: { label: "Блендер", src: ASSETS.blender.normal, icon: ASSETS.profileIcons.blender },
+  coffee: { label: "Кофемашина", src: ASSETS.coffee.normal, icon: ASSETS.profileIcons.coffee },
 };
 const DEPARTMENTS = [
   "SMM",
@@ -320,10 +320,11 @@ const HELP_COPY = {
     title: "Добро пожаловать на кухню!",
     lines: [
       "Главный челлендж — «Кубики сошлись». Там растёт рейтинг.",
+      "В «Кубиках» есть соло-забег и кулинарный поединок по коду кухни.",
       "Мини-игры — быстрые забеги за монетками.",
       "Монетки меняются на бустеры в лавке.",
     ],
-    tip: "Сначала выбери сложность, потом решай: в рейтинг или на добычу монеток.",
+    tip: "Сначала выбери сложность, потом решай: соло, поединок или добыча монеток.",
   },
   airfryer: {
     title: "Башня хруста",
@@ -357,9 +358,11 @@ const HELP_COPY = {
     lines: [
       "Перетаскивай плитки, чтобы собрать три одинаковые в ряд.",
       "Закрывай цели до того, как закончатся ходы.",
+      "В кулинарном поединке создай кухню или войди по коду соперника.",
+      "В поединке у обоих одинаковые цели, поле и таймер.",
       "Звёзды, сердца и бустеры устраивают красивую уборку поля.",
     ],
-    tip: "Очки рейтинга копятся здесь. Отчёты убираются спецплитками и бустерами.",
+    tip: "Очки рейтинга копятся за закрытые цели. В поединке победа засчитывается только с готовым подносом.",
   },
 };
 const STATUS_LEVELS = [
@@ -525,6 +528,8 @@ const state = {
   timers: [],
   cleanup: [],
 };
+
+let cloudSaveTimer = 0;
 
 const audio = {};
 
@@ -693,7 +698,7 @@ function profileAvatarButton() {
   button.className = "profile-avatar-button";
   button.type = "button";
   button.setAttribute("aria-label", profile ? `Профиль: ${profile.display_name}` : "Профиль");
-  button.append(safeImg(avatar.src, avatar.label));
+  button.append(safeImg(getProfileAvatarIcon(profile?.avatar_id), avatar.label));
   button.addEventListener("click", (event) => {
     event.stopPropagation();
     playSound("click");
@@ -732,6 +737,13 @@ function refreshStatusMounts() {
   document.querySelectorAll("#statusMount").forEach((mount) => {
     mount.innerHTML = "";
     mount.append(leaderboardButton());
+  });
+}
+
+function refreshProfileMounts() {
+  document.querySelectorAll("#profileMount").forEach((mount) => {
+    mount.innerHTML = "";
+    mount.append(profileAvatarButton());
   });
 }
 
@@ -823,6 +835,23 @@ function makeId(prefix = "id") {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function makeAccountCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = new Uint8Array(8);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    bytes.forEach((_, index) => {
+      bytes[index] = Math.floor(Math.random() * 256);
+    });
+  }
+  return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("");
+}
+
+function cleanAccountCode(value) {
+  return String(value || "").toUpperCase().replace(/[^A-Z0-9_/-]/g, "").slice(0, 48);
+}
+
 function cleanProfileField(value, maxLength, fallback = "") {
   const normalized = String(value || "").replace(/\s+/g, " ").trim();
   return (normalized || fallback).slice(0, maxLength);
@@ -832,8 +861,33 @@ function normalizeAvatarId(value) {
   return Object.prototype.hasOwnProperty.call(PROFILE_AVATARS, value) ? value : "airfryer";
 }
 
+function getProfileAvatarIcon(avatarId) {
+  const avatar = PROFILE_AVATARS[normalizeAvatarId(avatarId)] || PROFILE_AVATARS.airfryer;
+  return avatar.icon || avatar.src;
+}
+
 function normalizeDepartment(value) {
   return DEPARTMENTS.includes(value) ? value : DEPARTMENTS[0];
+}
+
+function normalizeCareerProgress(progress) {
+  return {
+    airfryer: Math.max(0, Number(progress?.airfryer) || 0),
+    blender: Math.max(0, Number(progress?.blender) || 0),
+    coffee: Math.max(0, Number(progress?.coffee) || 0),
+  };
+}
+
+function normalizeWalletData(wallet) {
+  const emptyInventory = Object.fromEntries(Object.keys(BOOSTERS).map((key) => [key, 0]));
+  const sourceInventory = wallet?.inventory && typeof wallet.inventory === "object" ? wallet.inventory : {};
+  return {
+    coins: Math.max(0, Number(wallet?.coins) || 0),
+    inventory: Object.fromEntries(Object.keys(emptyInventory).map((key) => [
+      key,
+      Math.max(0, Number(sourceInventory[key]) || 0),
+    ])),
+  };
 }
 
 function loadPlayerProfile() {
@@ -846,6 +900,7 @@ function loadPlayerProfile() {
     const department = normalizeDepartment(saved.department);
     return {
       player_id: String(saved.player_id),
+      account_code: cleanAccountCode(saved.account_code) || makeAccountCode(),
       name,
       role,
       avatar_id: avatarId,
@@ -1019,15 +1074,17 @@ async function refreshRatingStats() {
   }
 }
 
-function savePlayerProfile(nameValue, roleValue, avatarValue, departmentValue) {
+function savePlayerProfile(nameValue, roleValue, avatarValue, departmentValue, accountCodeValue) {
   const now = new Date().toISOString();
   const previous = state.playerProfile;
   const name = cleanProfileField(nameValue, 24, "Игрок");
   const role = cleanProfileField(roleValue, 40, "Гость кухни");
   const avatarId = normalizeAvatarId(avatarValue || previous?.avatar_id);
   const department = normalizeDepartment(departmentValue || previous?.department);
+  const accountCode = cleanAccountCode(accountCodeValue || previous?.account_code) || makeAccountCode();
   const profile = {
     player_id: previous?.player_id || makeId("player"),
+    account_code: accountCode,
     name,
     role,
     avatar_id: avatarId,
@@ -1049,6 +1106,7 @@ function openProfileModal(options = {}) {
   const profile = state.playerProfile || {};
   const selectedAvatar = normalizeAvatarId(profile.avatar_id);
   const selectedDepartment = normalizeDepartment(profile.department);
+  const accountCode = cleanAccountCode(profile.account_code) || makeAccountCode();
   const avatarMarkup = Object.entries(PROFILE_AVATARS).map(([key, avatar]) => `
         <label class="avatar-option ${key === selectedAvatar ? "active" : ""}">
           <input type="radio" name="avatar_id" value="${key}" ${key === selectedAvatar ? "checked" : ""}>
@@ -1085,6 +1143,26 @@ function openProfileModal(options = {}) {
         </select>
       </label>
       <button class="action-button full" type="submit">${required ? "Записать меня" : "Сохранить"}</button>
+      <div class="profile-id-panel">
+        <div class="profile-id-header">
+          <span>ID аккаунта</span>
+          <button class="profile-help-button" type="button" id="profileIdHelp" aria-label="Что такое ID аккаунта?">?</button>
+        </div>
+        <div class="profile-id-copy-row">
+          <strong id="profileAccountCode">${escapeHtml(accountCode)}</strong>
+          <button class="profile-id-copy" type="button" id="copyProfileId">Скопировать</button>
+        </div>
+        <div class="profile-id-tip" id="profileIdTip" hidden>
+          Сохрани ID, если хочешь играть с тем же прогрессом на телефоне и компьютере. На другом устройстве введи его в поле ниже и нажми “Войти по ID”.
+        </div>
+        <label class="profile-id-login">
+          <span>Уже есть ID?</span>
+          <div class="profile-id-login-row">
+            <input id="profileLoginId" type="text" maxlength="48" autocomplete="off" placeholder="Введи ID">
+            <button type="button" id="loadProfileId">Войти по ID</button>
+          </div>
+        </label>
+      </div>
     </form>
   `;
   app.append(overlay);
@@ -1098,6 +1176,52 @@ function openProfileModal(options = {}) {
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) close();
   });
+  overlay.querySelector("#copyProfileId").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(accountCode);
+      showGlobalToast("ID скопирован");
+      playSound("score");
+    } catch {
+      showGlobalToast(`ID: ${accountCode}`);
+    }
+  });
+  overlay.querySelector("#profileIdHelp").addEventListener("click", () => {
+    const tip = overlay.querySelector("#profileIdTip");
+    tip.hidden = !tip.hidden;
+    playSound("click");
+  });
+  overlay.querySelector("#loadProfileId").addEventListener("click", async () => {
+    const code = cleanAccountCode(overlay.querySelector("#profileLoginId").value);
+    if (!code) {
+      showGlobalToast("Введи ID аккаунта");
+      return;
+    }
+    if (!isSupabaseConfigured()) {
+      showGlobalToast("База сейчас недоступна");
+      return;
+    }
+    const button = overlay.querySelector("#loadProfileId");
+    button.disabled = true;
+    button.textContent = "Ищем...";
+    try {
+      const remotePlayer = await fetchSupabasePlayerByAccountCode(code);
+      if (!remotePlayer) {
+        showGlobalToast("Такой ID не найден");
+        return;
+      }
+      applyCloudPlayer(remotePlayer);
+      syncPlayerProfile(state.playerProfile);
+      overlay.remove();
+      showStartScreen();
+      showGlobalToast("Аккаунт подтянут");
+      playSound("score");
+    } catch {
+      showGlobalToast("Не получилось подтянуть ID");
+    } finally {
+      button.disabled = false;
+      button.textContent = "Войти по ID";
+    }
+  });
   overlay.querySelectorAll(".avatar-option input").forEach((input) => {
     input.addEventListener("change", () => {
       overlay.querySelectorAll(".avatar-option").forEach((option) => {
@@ -1105,14 +1229,34 @@ function openProfileModal(options = {}) {
       });
     });
   });
-  overlay.querySelector("#profileForm").addEventListener("submit", (event) => {
+  overlay.querySelector("#profileForm").addEventListener("submit", async (event) => {
     event.preventDefault();
+    const submitButton = overlay.querySelector('button[type="submit"]');
     const name = overlay.querySelector("#profileName").value;
     const role = overlay.querySelector("#profileRole").value;
     const avatar = overlay.querySelector('input[name="avatar_id"]:checked')?.value;
     const department = overlay.querySelector("#profileDepartment").value;
-    const profile = savePlayerProfile(name, role, avatar, department);
+    if (isSupabaseConfigured()) {
+      submitButton.disabled = true;
+      submitButton.textContent = "Проверяем...";
+      try {
+        const duplicate = await fetchDuplicateProfile(name, role, department, state.playerProfile?.player_id || "");
+        if (duplicate) {
+          showGlobalToast("Такой игрок уже записан");
+          submitButton.disabled = false;
+          submitButton.textContent = required ? "Записать меня" : "Сохранить";
+          return;
+        }
+      } catch {
+        showGlobalToast("Не удалось проверить дубль");
+        submitButton.disabled = false;
+        submitButton.textContent = required ? "Записать меня" : "Сохранить";
+        return;
+      }
+    }
+    const profile = savePlayerProfile(name, role, avatar, department, accountCode);
     refreshStatusMounts();
+    refreshProfileMounts();
     syncPlayerProfile(profile);
     overlay.remove();
     showGlobalToast("Профиль сохранён");
@@ -1192,7 +1336,7 @@ async function loadLeaderboardInto(container, scope = "company") {
     container.innerHTML = rows.map((row, index) => `
       <div class="leaderboard-row">
         <strong>${index + 1}</strong>
-        <img class="leaderboard-avatar" src="${(PROFILE_AVATARS[row.avatar_id]?.src || PROFILE_AVATARS.airfryer.src)}" alt="">
+        <img class="leaderboard-avatar" src="${getProfileAvatarIcon(row.avatar_id)}" alt="">
         <div>
           <span>${escapeHtml(row.display_name || "Игрок")}</span>
           <em>${escapeHtml(row.display_role || "Гость кухни")}${row.display_department ? ` · ${escapeHtml(row.display_department)}` : ""}</em>
@@ -1209,7 +1353,7 @@ async function loadLeaderboardInto(container, scope = "company") {
         <div class="leaderboard-local-note">Глобальная таблица сейчас не отвечает, но твои очки сохранены на этом устройстве.</div>
         <div class="leaderboard-row local">
           <strong>★</strong>
-          <img class="leaderboard-avatar" src="${PROFILE_AVATARS[profile.avatar_id]?.src || PROFILE_AVATARS.airfryer.src}" alt="">
+          <img class="leaderboard-avatar" src="${getProfileAvatarIcon(profile.avatar_id)}" alt="">
           <div>
             <span>${escapeHtml(profile.display_name || profile.name || "Игрок")}</span>
             <em>${escapeHtml(profile.display_role || profile.role || "Гость кухни")}${profile.display_department || profile.department ? ` · ${escapeHtml(profile.display_department || profile.department)}` : ""}</em>
@@ -1231,7 +1375,7 @@ async function fetchLeaderboard(scope = "company") {
     filters.push(`department=eq.${encodeSupabaseValue(state.playerProfile.department)}`);
   }
   const query = [
-    `select=${encodeURIComponent("player_id,name,role,avatar_id,department,display_name,display_role,display_department,total_score,rounds,level_points,updated_at")}`,
+    `select=${encodeURIComponent("player_id,account_code,name,role,avatar_id,department,display_name,display_role,display_department,total_score,rounds,level_points,wallet,progress,updated_at")}`,
     "order=total_score.desc,updated_at.asc",
     "limit=1000",
     ...filters,
@@ -1268,6 +1412,7 @@ async function submitMatchResult(score, outcome) {
   const profile = state.playerProfile;
   const payload = {
     player_id: profile.player_id,
+    account_code: profile.account_code,
     name: profile.name,
     role: profile.role,
     avatar_id: profile.avatar_id,
@@ -1296,6 +1441,7 @@ async function sendLeaderboardPayload(payload) {
   if (!isSupabaseConfigured()) throw new Error("Supabase is not configured");
   const profile = {
     player_id: payload.player_id,
+    account_code: payload.account_code || state.playerProfile?.account_code,
     name: payload.name,
     role: payload.role,
     avatar_id: payload.avatar_id,
@@ -1307,7 +1453,11 @@ async function sendLeaderboardPayload(payload) {
     updated_at: new Date().toISOString(),
   };
   let current = await fetchSupabasePlayer(payload.player_id);
-  await upsertSupabasePlayer(profile, current || emptyRatingStats());
+  await upsertSupabasePlayer(profile, {
+    ...(current || emptyRatingStats()),
+    wallet: state.wallet,
+    progress: state.progress,
+  });
 
   const existingSession = await supabaseRequest(`${SUPABASE_TABLES.scores}?select=session_id&session_id=eq.${encodeSupabaseValue(payload.session_id)}&player_id=eq.${encodeSupabaseValue(payload.player_id)}&limit=1`);
   if (!Array.isArray(existingSession) || !existingSession.length) {
@@ -1329,6 +1479,8 @@ async function sendLeaderboardPayload(payload) {
       total_score: Math.max(0, Number(current?.total_score) || 0) + Math.max(0, Number(payload.score) || 0),
       rounds: Math.max(0, Number(current?.rounds) || 0) + 1,
       level_points: Math.max(0, Number(current?.level_points) || 0) + levelGain,
+      wallet: state.wallet,
+      progress: state.progress,
       updated_at: new Date().toISOString(),
     });
   }
@@ -1340,12 +1492,50 @@ async function syncPlayerProfile(profile = state.playerProfile) {
   if (!profile || !isSupabaseConfigured()) return null;
   try {
     const current = await fetchSupabasePlayer(profile.player_id);
-    const saved = await upsertSupabasePlayer(profile, current || state.ratingStats || emptyRatingStats());
+    const saved = await upsertSupabasePlayer(profile, {
+      ...(current || state.ratingStats || emptyRatingStats()),
+      wallet: state.wallet,
+      progress: state.progress,
+    });
     await refreshRatingStats();
     return saved;
   } catch {
     return null;
   }
+}
+
+function scheduleCloudSave() {
+  if (!state.playerProfile || !isSupabaseConfigured()) return;
+  clearTimeout(cloudSaveTimer);
+  cloudSaveTimer = window.setTimeout(() => {
+    syncPlayerProfile(state.playerProfile).catch(() => {});
+  }, 700);
+}
+
+function applyCloudPlayer(player) {
+  if (!player?.player_id) return null;
+  const now = new Date().toISOString();
+  const profile = {
+    player_id: player.player_id,
+    account_code: cleanAccountCode(player.account_code) || makeAccountCode(),
+    name: player.name,
+    role: player.role,
+    avatar_id: normalizeAvatarId(player.avatar_id),
+    department: normalizeDepartment(player.department),
+    display_name: player.display_name || player.name,
+    display_role: player.display_role || player.role,
+    display_department: player.display_department || player.department,
+    created_at: player.created_at || now,
+    updated_at: player.updated_at || now,
+  };
+  state.playerProfile = profile;
+  state.wallet = normalizeWalletData(player.wallet);
+  state.progress = normalizeCareerProgress(player.progress);
+  localStorage.setItem(PLAYER_PROFILE_KEY, JSON.stringify(profile));
+  localStorage.setItem(WALLET_KEY, JSON.stringify(state.wallet));
+  localStorage.setItem(PROGRESS_KEY, JSON.stringify(state.progress));
+  saveRatingStats(player, { keepBestLocal: false });
+  return profile;
 }
 
 function isSupabaseConfigured() {
@@ -1394,6 +1584,7 @@ function normalizeLeaderboardPlayer(player) {
   const levelPoints = Math.max(0, Number(player?.level_points ?? rounds) || 0);
   return {
     player_id: String(player?.player_id || ""),
+    account_code: cleanAccountCode(player?.account_code),
     name: cleanProfileField(player?.name, 24, "Игрок"),
     role: cleanProfileField(player?.role, 40, "Гость кухни"),
     avatar_id: normalizeAvatarId(player?.avatar_id),
@@ -1404,6 +1595,8 @@ function normalizeLeaderboardPlayer(player) {
     total_score: totalScore,
     rounds,
     level_points: levelPoints,
+    wallet: normalizeWalletData(player?.wallet),
+    progress: normalizeCareerProgress(player?.progress),
     updated_at: player?.updated_at || "",
   };
 }
@@ -1427,9 +1620,31 @@ async function fetchSupabasePlayer(playerId) {
   return Array.isArray(rows) && rows[0] ? normalizeLeaderboardPlayer(rows[0]) : null;
 }
 
+async function fetchSupabasePlayerByAccountCode(accountCode) {
+  const code = cleanAccountCode(accountCode);
+  if (!code) return null;
+  if (code.startsWith("PLAYER_") || code.includes("_")) return fetchSupabasePlayer(code);
+  const rows = await supabaseRequest(`${SUPABASE_TABLES.players}?select=*&account_code=eq.${encodeSupabaseValue(code)}&limit=1`);
+  return Array.isArray(rows) && rows[0] ? normalizeLeaderboardPlayer(rows[0]) : null;
+}
+
+async function fetchDuplicateProfile(name, role, department, ownPlayerId = "") {
+  if (!isSupabaseConfigured()) return null;
+  const query = [
+    "select=player_id,name,role,department",
+    `name=ilike.${encodeSupabaseValue(cleanProfileField(name, 24, "Игрок"))}`,
+    `role=ilike.${encodeSupabaseValue(cleanProfileField(role, 40, "Гость кухни"))}`,
+    `department=eq.${encodeSupabaseValue(normalizeDepartment(department))}`,
+    "limit=5",
+  ].join("&");
+  const rows = await supabaseRequest(`${SUPABASE_TABLES.players}?${query}`);
+  return (Array.isArray(rows) ? rows : []).find((row) => row.player_id !== ownPlayerId) || null;
+}
+
 async function upsertSupabasePlayer(profile, stats = {}) {
   const record = {
     player_id: profile.player_id,
+    account_code: cleanAccountCode(profile.account_code) || makeAccountCode(),
     name: cleanProfileField(profile.name, 24, "Игрок"),
     role: cleanProfileField(profile.role, 40, "Гость кухни"),
     avatar_id: normalizeAvatarId(profile.avatar_id),
@@ -1440,6 +1655,8 @@ async function upsertSupabasePlayer(profile, stats = {}) {
     total_score: Math.max(0, Number(stats?.total_score) || 0),
     rounds: Math.max(0, Number(stats?.rounds) || 0),
     level_points: Math.max(0, Number(stats?.level_points ?? stats?.rounds) || 0),
+    wallet: normalizeWalletData(stats?.wallet || state.wallet),
+    progress: normalizeCareerProgress(stats?.progress || state.progress),
     created_at: profile.created_at || new Date().toISOString(),
     updated_at: stats?.updated_at || profile.updated_at || new Date().toISOString(),
   };
@@ -1456,7 +1673,7 @@ function getDuelTimerSeconds(difficultyKey = state.difficulty) {
 }
 
 function makeRoomCode() {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(Math.floor(1000 + Math.random() * 9000));
 }
 
 function normalizeDuelProfile(profile = state.playerProfile) {
@@ -1627,9 +1844,9 @@ async function joinDuelRoom(roomCodeValue) {
     showGlobalToast("Кухня временно не отвечает");
     return null;
   }
-  const roomCode = String(roomCodeValue || "").replace(/\D/g, "").slice(0, 6);
-  if (roomCode.length !== 6) {
-    showGlobalToast("Код должен быть из 6 цифр");
+  const roomCode = String(roomCodeValue || "").replace(/\D/g, "").slice(0, 4);
+  if (roomCode.length !== 4) {
+    showGlobalToast("Код должен быть из 4 цифр");
     return null;
   }
   const room = await fetchDuelRoom(roomCode);
@@ -1905,6 +2122,16 @@ function openSelectHelpDialog() {
       tab: "Кубики",
       text: "Вот главная игра: двигай плитки, собирай цели и набирай очки рейтинга. Чем удачнее раунд, тем веселее доска!",
       button: "Ух ты!",
+    },
+    {
+      tab: "Поединок",
+      text: "В «Кубиках» можно устроить кулинарный поединок: создай кухню и передай 4-значный код или ворвись на кухню соперника.",
+      button: "Ого!",
+    },
+    {
+      tab: "Правила кухни",
+      text: "В поединке у обоих одинаковые цели, поле и таймер. Победа в рейтинг идёт только тогда, когда цели закрыты.",
+      button: "Честная кухня!",
     },
     {
       tab: "Мини-игры",
@@ -2511,6 +2738,8 @@ function showMatchPrepScreen() {
           <span>${difficulty.matchGoals} цели${difficulty.matchBlockers ? ` · ${difficulty.matchBlockers} отчёта-блокера` : ""}</span>
         </div>
       </div>
+      <div class="match-prep-side">
+        <div class="mode-panel-title">Формат раунда</div>
       <div class="match-mode-picker" id="matchModePicker" aria-label="Режим Кубиков">
         <button class="match-mode-option ${mode === "solo" ? "active" : ""}" type="button" data-mode="solo">
           <img src="${ASSETS.duel.soloIcon}" alt="">
@@ -2529,6 +2758,7 @@ function showMatchPrepScreen() {
         <button class="action-button full solo-action" type="button" id="startMatch">Играть в «Кубики сошлись»</button>
         <button class="action-button full duel-action" type="button" id="createDuelKitchen">${DUEL_COPY.create}</button>
         <button class="action-button secondary full duel-action" type="button" id="joinDuelKitchen">${DUEL_COPY.join}</button>
+      </div>
       </div>
     </section>
   `);
@@ -2670,8 +2900,8 @@ function showJoinDuelRoomScreen() {
       </div>
       <form class="duel-room-card join" id="joinDuelForm">
         <h2>${DUEL_COPY.join}</h2>
-        <p>Введи код кухни из 6 цифр</p>
-        <input class="duel-code-input" id="duelCodeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" required>
+        <p>Введи код кухни из 4 цифр</p>
+        <input class="duel-code-input" id="duelCodeInput" inputmode="numeric" autocomplete="one-time-code" maxlength="4" placeholder="0000" required>
         <button class="action-button full" type="submit">${DUEL_COPY.join}</button>
       </form>
     </section>
@@ -2683,7 +2913,7 @@ function showJoinDuelRoomScreen() {
   });
   const input = document.querySelector("#duelCodeInput");
   input.addEventListener("input", () => {
-    input.value = input.value.replace(/\D/g, "").slice(0, 6);
+    input.value = input.value.replace(/\D/g, "").slice(0, 4);
   });
   document.querySelector("#joinDuelForm").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -2793,7 +3023,7 @@ function duelPlayerBadge(profile, label, pending = false) {
 
 function duelAvatar(profile) {
   const avatar = PROFILE_AVATARS[normalizeAvatarId(profile?.avatar_id)] || PROFILE_AVATARS.airfryer;
-  return `<img class="duel-avatar" src="${avatar.src}" alt="">`;
+  return `<img class="duel-avatar" src="${avatar.icon || avatar.src}" alt="">`;
 }
 
 function formatTime(secondsValue) {
@@ -2915,6 +3145,7 @@ function showDuelResultScreen(room) {
     state.difficulty = room.difficulty;
     await showCreateDuelRoomScreen();
   });
+  submitDuelRatingResult(myResult?.score || 0, room, verdict);
   if (verdict.tone === "win") {
     playSound("win");
     confetti();
@@ -2931,7 +3162,7 @@ function getDuelVerdict(myResult = {}, rivalResult = {}) {
   const myScore = Math.max(0, Number(myResult?.score) || 0);
   const rivalScore = Math.max(0, Number(rivalResult?.score) || 0);
   if (myClosed && !rivalClosed) {
-    return { tone: "win", title: DUEL_COPY.win, phrase: "Ты закрыла цели, кухня аплодирует.", myPlace: 1, rivalPlace: 2 };
+    return { tone: "win", title: DUEL_COPY.win, phrase: "Ты закрыла цели, кухня аплодирует.", myPlace: 1, rivalPlace: 2, ratingWin: true };
   }
   if (!myClosed && rivalClosed) {
     return { tone: "lose", title: "Соперник закрыл цели", phrase: "Твой поднос был близко. Реванш просится сам.", myPlace: 2, rivalPlace: 1 };
@@ -2942,7 +3173,7 @@ function getDuelVerdict(myResult = {}, rivalResult = {}) {
   const iLead = myScore > rivalScore;
   if (myClosed && rivalClosed) {
     return iLead
-      ? { tone: "win", title: DUEL_COPY.winByScore, phrase: "Обе цели закрыты, но твой счёт вкуснее.", myPlace: 1, rivalPlace: 2 }
+      ? { tone: "win", title: DUEL_COPY.winByScore, phrase: "Обе цели закрыты, но твой счёт вкуснее.", myPlace: 1, rivalPlace: 2, ratingWin: true }
       : { tone: "lose", title: DUEL_COPY.goalsClosedButSecond, phrase: "Цели закрыты, но соперник собрал больше очков.", myPlace: 2, rivalPlace: 1 };
   }
   return iLead
@@ -3593,11 +3824,6 @@ function startMatchGame(options = {}) {
         pill.textContent = formatTime(left);
         pill.classList.toggle("urgent", left <= 10);
       }
-      document.querySelector(".is-game")?.classList.toggle("duel-final-seconds", left <= 10);
-      if (left === 10) {
-        showPhrase(area, DUEL_COPY.finalSeconds, "50%", "14%");
-        playSound("fail");
-      }
       updateMatchHud();
       if (left <= 0) finishDuelMatch();
     }, 500);
@@ -3953,6 +4179,39 @@ function showResult(character, score, outcome = "win") {
   if (outcome === "win") confetti();
 }
 
+async function submitDuelRatingResult(score, room, verdict) {
+  if (!verdict?.ratingWin || !room?.room_code || !state.playerProfile) return;
+  if (!room.host_result || !room.guest_result) return;
+  const sessionId = `duel_${room.room_code}_${state.playerProfile.player_id}`;
+  addLocalRatingScore(score, sessionId, room.difficulty || state.difficulty);
+  refreshRatingSummary();
+  if (!isSupabaseConfigured()) return;
+  const profile = state.playerProfile;
+  const payload = {
+    player_id: profile.player_id,
+    account_code: profile.account_code,
+    name: profile.name,
+    role: profile.role,
+    avatar_id: profile.avatar_id,
+    department: profile.department,
+    display_name: profile.display_name,
+    display_role: profile.display_role,
+    display_department: profile.display_department,
+    game: "match_duel",
+    score: Number(score) || 0,
+    difficulty: room.difficulty || state.difficulty,
+    session_id: sessionId,
+    created_at: new Date().toISOString(),
+    outcome: "win",
+  };
+  try {
+    const data = await sendLeaderboardPayload(payload);
+    applyLeaderboardData(data);
+  } catch {
+    showGlobalToast("Очки сохранены на устройстве");
+  }
+}
+
 function resetGame() {
   state.selectedCharacter = null;
   setScore(0);
@@ -3960,21 +4219,17 @@ function resetGame() {
 }
 
 function loadCareerProgress() {
-  const fallback = { airfryer: 0, blender: 0, coffee: 0 };
   try {
     const saved = JSON.parse(localStorage.getItem(PROGRESS_KEY) || "null");
-    return {
-      airfryer: Math.max(0, Number(saved?.airfryer) || 0),
-      blender: Math.max(0, Number(saved?.blender) || 0),
-      coffee: Math.max(0, Number(saved?.coffee) || 0),
-    };
+    return normalizeCareerProgress(saved);
   } catch {
-    return fallback;
+    return normalizeCareerProgress();
   }
 }
 
 function saveCareerProgress() {
   localStorage.setItem(PROGRESS_KEY, JSON.stringify(state.progress));
+  scheduleCloudSave();
 }
 
 function recordCareerRound(character) {
@@ -3984,23 +4239,17 @@ function recordCareerRound(character) {
 }
 
 function loadWallet() {
-  const emptyInventory = Object.fromEntries(Object.keys(BOOSTERS).map((key) => [key, 0]));
   try {
     const saved = JSON.parse(localStorage.getItem(WALLET_KEY) || "null");
-    return {
-      coins: Math.max(0, Number(saved?.coins) || 0),
-      inventory: {
-        ...emptyInventory,
-        ...(saved?.inventory || {}),
-      },
-    };
+    return normalizeWalletData(saved);
   } catch {
-    return { coins: 0, inventory: emptyInventory };
+    return normalizeWalletData();
   }
 }
 
 function saveWallet() {
   localStorage.setItem(WALLET_KEY, JSON.stringify(state.wallet));
+  scheduleCloudSave();
 }
 
 function awardCoins(character) {

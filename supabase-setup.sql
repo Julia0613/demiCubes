@@ -6,6 +6,7 @@ create table if not exists public.players (
 
 alter table public.players
   add column if not exists name text not null default 'Игрок',
+  add column if not exists account_code text,
   add column if not exists role text not null default 'Гость кухни',
   add column if not exists avatar_id text not null default 'airfryer',
   add column if not exists department text not null default 'SMM',
@@ -15,6 +16,8 @@ alter table public.players
   add column if not exists total_score integer not null default 0,
   add column if not exists rounds integer not null default 0,
   add column if not exists level_points integer not null default 0,
+  add column if not exists wallet jsonb not null default '{"coins":0,"inventory":{}}'::jsonb,
+  add column if not exists progress jsonb not null default '{"airfryer":0,"blender":0,"coffee":0}'::jsonb,
   add column if not exists created_at timestamptz not null default now(),
   add column if not exists updated_at timestamptz not null default now();
 
@@ -62,6 +65,13 @@ create unique index if not exists scores_player_session_idx
 
 create index if not exists players_rating_idx
   on public.players (total_score desc, updated_at asc);
+
+create unique index if not exists players_account_code_idx
+  on public.players (account_code)
+  where account_code is not null;
+
+create unique index if not exists players_identity_unique_idx
+  on public.players (lower(name), lower(role), department);
 
 create index if not exists players_department_rating_idx
   on public.players (department, total_score desc, updated_at asc);
