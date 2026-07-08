@@ -361,7 +361,7 @@ const HELP_COPY = {
       "В поединке у обоих одинаковые цели, поле и таймер.",
       "Звёзды, сердца и бустеры устраивают красивую уборку поля.",
     ],
-    tip: "Очки рейтинга копятся за закрытые цели. В поединке победа засчитывается только с готовым подносом.",
+    tip: "Очки рейтинга копятся за закрытые цели. В поединке победа засчитывается только с закрытыми целями.",
   },
 };
 const STATUS_LEVELS = [
@@ -3095,7 +3095,7 @@ function showDuelResultWaiting() {
     <section class="screen duel-result-screen">
       <div class="duel-room-card loading">
         <h2>${DUEL_COPY.counting}</h2>
-        <p>Ждём, пока второй повар отдаст поднос</p>
+        <p>Ждём итог второго повара</p>
         <div class="duel-loader"></div>
       </div>
     </section>
@@ -3125,11 +3125,16 @@ function showDuelResultScreen(room) {
     : verdict.tone === "lose"
       ? ASSETS.duel.defeatBg
       : ASSETS.duel.drawBg;
+  const scoreRows = [
+    { profile: myProfile, result: myResult, place: verdict.myPlace, fallbackName: "Ты", order: 0 },
+    { profile: rivalProfile, result: rivalResult, place: verdict.rivalPlace, fallbackName: "Соперник", order: 1 },
+  ].sort((a, b) => (a.place - b.place) || (a.order - b.order));
   setDuelBackground(bg);
   render(`
     <section class="screen duel-result-screen">
       <div class="top-row">
         <button class="back-button" type="button" id="backMatchPrep">←</button>
+        <div id="statusMount"></div>
         <div id="soundMount"></div>
       </div>
       <div class="duel-result-hero">
@@ -3139,8 +3144,7 @@ function showDuelResultScreen(room) {
         <h2>${escapeHtml(verdict.title)}</h2>
         <p>${escapeHtml(verdict.phrase)}</p>
         <div class="duel-score-table">
-          ${duelScoreRow(myProfile, myResult, verdict.myPlace, "Ты")}
-          ${duelScoreRow(rivalProfile, rivalResult, verdict.rivalPlace, "Соперник")}
+          ${scoreRows.map((row) => duelScoreRow(row.profile, row.result, row.place, row.fallbackName)).join("")}
         </div>
       </div>
       <div class="result-actions">
@@ -3149,6 +3153,7 @@ function showDuelResultScreen(room) {
       </div>
     </section>
   `, "duel-app");
+  mountStatus();
   document.querySelector("#soundMount").append(soundButton());
   const back = () => {
     playSound("click");
@@ -3182,7 +3187,7 @@ function getDuelVerdict(myResult = {}, rivalResult = {}) {
     return { tone: "win", title: DUEL_COPY.win, phrase: "Ты закрыла цели, кухня аплодирует.", myPlace: 1, rivalPlace: 2, ratingWin: true };
   }
   if (!myClosed && rivalClosed) {
-    return { tone: "lose", title: "Соперник закрыл цели", phrase: "Твой поднос был близко. Реванш просится сам.", myPlace: 2, rivalPlace: 1 };
+    return { tone: "lose", title: "Соперник закрыл цели", phrase: "Цели были уже близко. Реванш точно напрашивается.", myPlace: 2, rivalPlace: 1 };
   }
   if (myClosed && rivalClosed) {
     const myFinish = getDuelFinishTime(myResult);

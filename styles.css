@@ -1619,6 +1619,11 @@ h2 {
   z-index: 5;
 }
 
+.duel-result-screen .top-row #statusMount {
+  flex: 1;
+  justify-content: flex-end;
+}
+
 .duel-room-card,
 .duel-result-card,
 .duel-vs-card {
@@ -1832,20 +1837,21 @@ h2 {
 }
 
 .duel-result-screen {
-  grid-template-rows: auto minmax(130px, 1fr) auto auto;
+  grid-template-rows: auto auto auto;
   align-content: stretch;
-  gap: 10px;
+  gap: 8px;
+  padding-top: calc(64px + var(--safe-top));
   padding-bottom: max(14px, env(safe-area-inset-bottom));
 }
 
 .duel-result-hero {
   justify-self: center;
   align-self: end;
-  width: min(76%, 310px);
-  height: clamp(128px, 26dvh, 210px);
+  width: min(50%, 190px);
+  height: clamp(82px, 15dvh, 126px);
   display: grid;
   place-items: end center;
-  margin-top: 44px;
+  margin-top: 0;
   pointer-events: none;
 }
 
@@ -4710,8 +4716,8 @@ h2 {
     grid-row: 2 / 4;
     align-self: end;
     justify-self: center;
-    width: min(34vw, 430px);
-    height: min(62dvh, 500px);
+    width: min(28vw, 360px);
+    height: min(52dvh, 420px);
     margin: 0;
   }
 
