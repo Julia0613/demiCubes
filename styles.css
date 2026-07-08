@@ -1010,6 +1010,10 @@ h2 {
   font-weight: 900;
 }
 
+.game-title span:empty {
+  display: none;
+}
+
 .score-pill,
 .lives-pill,
 .pause-button,
@@ -1071,6 +1075,40 @@ h2 {
   min-width: 32px;
   min-height: 25px;
   font-size: 11px;
+}
+
+.hud.duel-game-hud {
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-areas:
+    "title timer score help"
+    "rival rival rival rival";
+  align-items: center;
+  gap: 7px;
+}
+
+.hud.duel-game-hud #statusMount {
+  display: none;
+}
+
+.hud.duel-game-hud .game-title {
+  min-height: 40px;
+  display: grid;
+  place-items: center;
+  padding: 5px 9px 6px;
+  border-radius: 16px;
+}
+
+.hud.duel-game-hud .game-title strong {
+  max-width: 100%;
+  font-size: clamp(15px, 4.2vw, 18px);
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hud.duel-game-hud .game-title span {
+  display: none;
 }
 
 .pause-button,
@@ -1801,6 +1839,7 @@ h2 {
 }
 
 .duel-timer-pill {
+  grid-area: timer;
   min-width: 76px;
   place-items: center;
   font-size: 18px;
@@ -1813,6 +1852,7 @@ h2 {
 }
 
 .duel-rival-pill {
+  grid-area: rival;
   grid-template-columns: 36px minmax(54px, 1fr) auto;
   gap: 6px;
   max-width: 160px;
@@ -1847,8 +1887,8 @@ h2 {
 .duel-result-hero {
   justify-self: center;
   align-self: end;
-  width: min(50%, 190px);
-  height: clamp(82px, 15dvh, 126px);
+  width: min(38%, 148px);
+  height: clamp(62px, 11dvh, 92px);
   display: grid;
   place-items: end center;
   margin-top: 0;
@@ -4452,6 +4492,15 @@ h2 {
     min-width: 0;
   }
 
+  .screen.is-game .hud.duel-game-hud {
+    grid-template-columns: minmax(220px, 1fr) minmax(150px, auto) minmax(150px, auto) auto auto;
+    grid-template-areas: "title timer rival score help";
+  }
+
+  .screen.is-game .hud.duel-game-hud #statusMount {
+    display: none;
+  }
+
   .screen.is-game .hud.mini-game-hud {
     grid-template-columns: minmax(280px, 1fr) auto auto auto;
     grid-template-areas: "title lives help pause";
@@ -4714,11 +4763,29 @@ h2 {
   .duel-result-hero {
     grid-column: 1;
     grid-row: 2 / 4;
-    align-self: end;
+    align-self: center;
     justify-self: center;
-    width: min(28vw, 360px);
-    height: min(52dvh, 420px);
-    margin: 0;
+    width: min(24vw, 330px);
+    height: min(46dvh, 380px);
+    margin: 0 0 36px;
+  }
+
+  .duel-result-hero.coffee {
+    width: min(22vw, 310px);
+    height: min(43dvh, 350px);
+    margin-bottom: 58px;
+  }
+
+  .duel-result-hero.blender {
+    width: min(22vw, 300px);
+    height: min(42dvh, 340px);
+    margin-bottom: 56px;
+  }
+
+  .duel-result-hero.airfryer {
+    width: min(23vw, 320px);
+    height: min(44dvh, 360px);
+    margin-bottom: 48px;
   }
 
   .duel-result-card {
@@ -4799,9 +4866,32 @@ h2 {
     grid-template-columns: minmax(190px, 1fr) minmax(128px, auto) auto auto auto auto;
   }
 
+  .screen.is-game .hud.duel-game-hud {
+    grid-template-columns: minmax(170px, 1fr) minmax(104px, auto) minmax(112px, auto) auto auto;
+    grid-template-areas: "title timer rival score help";
+  }
+
   .screen.is-game .hud.mini-game-hud {
     grid-template-columns: minmax(210px, 1fr) auto auto auto;
     grid-template-areas: "title lives help pause";
+  }
+
+  .duel-result-screen {
+    grid-template-columns: minmax(260px, 0.78fr) minmax(390px, 520px);
+    column-gap: 18px;
+  }
+
+  .duel-result-hero {
+    width: min(22vw, 270px);
+    height: min(39dvh, 300px);
+    margin-bottom: 52px;
+  }
+
+  .duel-result-hero.coffee,
+  .duel-result-hero.blender {
+    width: min(20vw, 250px);
+    height: min(36dvh, 278px);
+    margin-bottom: 68px;
   }
 
   .result-card {

@@ -3120,6 +3120,7 @@ function showDuelResultScreen(room) {
   const myResult = side === "host" ? room.host_result : room.guest_result;
   const rivalResult = opponentSide === "host" ? room.host_result : room.guest_result;
   const verdict = getDuelVerdict(myResult, rivalResult);
+  const resultAvatar = normalizeAvatarId(state.playerProfile?.avatar_id);
   const bg = verdict.tone === "win"
     ? ASSETS.duel.victoryBg
     : verdict.tone === "lose"
@@ -3137,7 +3138,7 @@ function showDuelResultScreen(room) {
         <div id="statusMount"></div>
         <div id="soundMount"></div>
       </div>
-      <div class="duel-result-hero">
+      <div class="duel-result-hero ${resultAvatar} ${verdict.tone}">
         <img src="${getDuelResultCharacter(verdict.tone)}" alt="">
       </div>
       <div class="duel-result-card ${verdict.tone}">
@@ -3258,10 +3259,11 @@ function startMatchGame(options = {}) {
       <strong>0</strong>
     </div>
   ` : "";
-  gameShell("match", isDuel ? DUEL_COPY.title : COPY.match.title, isDuel ? "Закрой цели до сигнала кухни" : "Собирай цели за ходы", duelHud);
+  gameShell("match", isDuel ? "Кулинарная битва" : COPY.match.title, isDuel ? "" : "Собирай цели за ходы", duelHud);
   state.matchSessionId = makeId("session");
   state.resultSubmitted = false;
   if (isDuel) {
+    document.querySelector(".hud")?.classList.add("duel-game-hud");
     state.duel = {
       room: duelRoom,
       side: duelSide,
