@@ -320,10 +320,11 @@ const HELP_COPY = {
     lines: [
       "Главный челлендж — «Кубики сошлись». Там растёт рейтинг.",
       "В «Кубиках» есть соло-забег и кулинарный поединок по коду кухни.",
+      "Уровень кухни растёт шагами: легко +1, нормально +2, сложно +3.",
       "Мини-игры — быстрые забеги за монетками.",
       "Монетки меняются на бустеры в лавке.",
     ],
-    tip: "Сначала выбери сложность, потом решай: соло, поединок или добыча монеток.",
+    tip: "Очки показывают место в рейтинге, а шаги сложности двигают уровень.",
   },
   airfryer: {
     title: "Башня хруста",
@@ -359,9 +360,10 @@ const HELP_COPY = {
       "Закрывай цели до того, как закончатся ходы.",
       "В кулинарном поединке создай кухню или войди по коду соперника.",
       "В поединке у обоих одинаковые цели, поле и таймер.",
+      "Реванш идёт в той же кухне: текущий раунд считается отдельно, серия — отдельно.",
       "Звёзды, сердца и бустеры устраивают красивую уборку поля.",
     ],
-    tip: "Очки рейтинга копятся за закрытые цели. В поединке победа засчитывается только с закрытыми целями.",
+    tip: "Уровень растёт шагами сложности: легко +1, нормально +2, сложно +3.",
   },
 };
 const STATUS_LEVELS = [
@@ -492,6 +494,7 @@ const DUEL_COPY = {
   rematch: "Реванш на кухне",
   back: "Вернуться к кубикам",
 };
+const DUEL_META_KEY = "__duel";
 
 const LOADING_COPY = [
   "Разогреваем кухню...",
@@ -1049,7 +1052,7 @@ function refreshRatingSummary() {
   const statusLabel = info.hasGlobalPosition ? "Статус в рейтинге" : "Уровень в игре";
   const localLine = info.hasGlobalPosition
     ? `<small class="rating-summary-note">В игре: уровень ${info.localLevelNumber}/${info.localLevelMax} · ${escapeHtml(info.localLevel.title)}</small>`
-    : `<small class="rating-summary-note">Уровень ${info.localLevelNumber}/${info.localLevelMax} · ${info.rounds} ${plural(info.rounds, ["победа", "победы", "побед"])}</small>`;
+    : `<small class="rating-summary-note">Уровень ${info.localLevelNumber}/${info.localLevelMax} · ${info.levelPoints} ${plural(info.levelPoints, ["шаг", "шага", "шагов"])} кухни</small>`;
   summary.innerHTML = `
     <div class="rating-summary-main">
       <span>${statusLabel}</span>
@@ -1274,7 +1277,7 @@ function openLeaderboardModal(options = {}) {
   const statusLabel = info.hasGlobalPosition ? "Статус в рейтинге" : "Уровень в игре";
   const localLine = info.hasGlobalPosition
     ? `<small class="rating-summary-note">В игре: уровень ${info.localLevelNumber}/${info.localLevelMax} · ${escapeHtml(info.localLevel.title)}</small>`
-    : `<small class="rating-summary-note">Уровень ${info.localLevelNumber}/${info.localLevelMax} · ${info.rounds} ${plural(info.rounds, ["победа", "победы", "побед"])}</small>`;
+    : `<small class="rating-summary-note">Уровень ${info.localLevelNumber}/${info.localLevelMax} · ${info.levelPoints} ${plural(info.levelPoints, ["шаг", "шага", "шагов"])} кухни</small>`;
   const overlay = document.createElement("div");
   overlay.className = "leaderboard-modal";
   overlay.innerHTML = `
@@ -1744,6 +1747,104 @@ function getDuelKitForDifficulty(difficultyKey) {
   };
 }
 
+function getDuelBoosterItems(kit = {}) {
+  return Object.fromEntries(Object.entries(kit || {}).filter(([key]) => key !== DUEL_META_KEY));
+}
+
+function getDuelMeta(roomOrKit = {}) {
+  const kit = roomOrKit?.booster_kit || roomOrKit || {};
+  const meta = kit?.[DUEL_META_KEY] && typeof kit[DUEL_META_KEY] === "object" ? kit[DUEL_META_KEY] : {};
+  return {
+    round: Math.max(1, Number(meta.round) || 1),
+    kitchen_scores: {
+      host: Math.max(0, Number(meta.kitchen_scores?.host) || 0),
+      guest: Math.max(0, Number(meta.kitchen_scores?.guest) || 0),
+    },
+    recorded_rounds: Array.isArray(meta.recorded_rounds) ? meta.recorded_rounds.map(String) : [],
+    rematch: meta.rematch && typeof meta.rematch === "object" ? meta.rematch : null,
+  };
+}
+
+function withDuelMeta(kit = {}, meta = {}) {
+  return {
+    ...getDuelBoosterItems(kit),
+    [DUEL_META_KEY]: {
+      ...getDuelMeta(kit),
+      ...meta,
+      kitchen_scores: {
+        ...getDuelMeta(kit).kitchen_scores,
+        ...(meta.kitchen_scores || {}),
+      },
+      recorded_rounds: Array.isArray(meta.recorded_rounds)
+        ? meta.recorded_rounds.map(String)
+        : getDuelMeta(kit).recorded_rounds,
+    },
+  };
+}
+
+function getDuelRoundNumber(room) {
+  return getDuelMeta(room).round;
+}
+
+function formatDuelRoundLabel(round) {
+  const labels = ["первый раунд", "второй раунд", "третий раунд", "четвёртый раунд", "пятый раунд"];
+  return labels[Math.max(1, Number(round) || 1) - 1] || `${round} раунд`;
+}
+
+function buildDuelRoundSetup(difficultyKey, roomCode) {
+  const config = DIFFICULTIES[difficultyKey] || DIFFICULTIES.normal;
+  const size = 7;
+  const tileTypes = Object.keys(ASSETS.match.tiles);
+  let board = createMatchBoard(size, tileTypes);
+  addMatchBlockers(board, size, config.matchBlockers);
+  let guard = 0;
+  while (!hasAnyMatchMove(board, size) && guard < 12) {
+    board = createMatchBoard(size, tileTypes);
+    addMatchBlockers(board, size, config.matchBlockers);
+    guard += 1;
+  }
+  return {
+    difficulty: difficultyKey,
+    timer_seconds: getDuelTimerSeconds(difficultyKey),
+    seed: makeDuelSeed(roomCode),
+    board,
+    goals: buildMatchGoals(tileTypes, config),
+    booster_kit: getDuelKitForDifficulty(difficultyKey),
+  };
+}
+
+function getDuelKitchenMetaWithCurrentRound(room) {
+  const meta = getDuelMeta(room);
+  const roundKey = String(meta.round);
+  if (meta.recorded_rounds.includes(roundKey) || !room?.host_result || !room?.guest_result) return meta;
+  return {
+    ...meta,
+    kitchen_scores: {
+      host: meta.kitchen_scores.host + Math.max(0, Number(room.host_result.score) || 0),
+      guest: meta.kitchen_scores.guest + Math.max(0, Number(room.guest_result.score) || 0),
+    },
+    recorded_rounds: [...meta.recorded_rounds, roundKey],
+  };
+}
+
+function getDuelKitchenRows(room) {
+  const meta = getDuelKitchenMetaWithCurrentRound(room);
+  return [
+    { side: "host", profile: getDuelPlayerProfile(room, "host"), score: meta.kitchen_scores.host, order: 0 },
+    { side: "guest", profile: getDuelPlayerProfile(room, "guest"), score: meta.kitchen_scores.guest, order: 1 },
+  ]
+    .sort((a, b) => (b.score - a.score) || (a.order - b.order))
+    .map((row, index, rows) => ({
+      ...row,
+      place: index > 0 && row.score === rows[index - 1].score ? rows[index - 1].place : index + 1,
+    }));
+}
+
+function getPendingDuelRematch(room) {
+  const offer = getDuelMeta(room).rematch;
+  return offer?.status === "pending" ? offer : null;
+}
+
 function cloneMatchBoard(board) {
   return (Array.isArray(board) ? board : []).map((tile) => (tile ? { ...tile } : null));
 }
@@ -1798,34 +1899,28 @@ async function createDuelRoom() {
     return null;
   }
   const difficulty = state.difficulty;
-  const config = DIFFICULTIES[difficulty] || DIFFICULTIES.normal;
-  const size = 7;
-  const tileTypes = Object.keys(ASSETS.match.tiles);
-  let board = createMatchBoard(size, tileTypes);
-  addMatchBlockers(board, size, config.matchBlockers);
-  let guard = 0;
-  while (!hasAnyMatchMove(board, size) && guard < 12) {
-    board = createMatchBoard(size, tileTypes);
-    addMatchBlockers(board, size, config.matchBlockers);
-    guard += 1;
-  }
-  const goals = buildMatchGoals(tileTypes, config);
   const profile = normalizeDuelProfile();
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const roomCode = makeRoomCode();
     const existing = await fetchDuelRoom(roomCode).catch(() => null);
     if (existing) continue;
+    const roundSetup = buildDuelRoundSetup(difficulty, roomCode);
     const rows = await supabaseRequest(`${SUPABASE_TABLES.duelRooms}?on_conflict=room_code`, {
       method: "POST",
       body: [{
         room_code: roomCode,
         status: "waiting",
-        difficulty,
-        timer_seconds: getDuelTimerSeconds(difficulty),
-        seed: makeDuelSeed(roomCode),
-        board,
-        goals,
-        booster_kit: getDuelKitForDifficulty(difficulty),
+        difficulty: roundSetup.difficulty,
+        timer_seconds: roundSetup.timer_seconds,
+        seed: roundSetup.seed,
+        board: roundSetup.board,
+        goals: roundSetup.goals,
+        booster_kit: withDuelMeta(roundSetup.booster_kit, {
+          round: 1,
+          kitchen_scores: { host: 0, guest: 0 },
+          recorded_rounds: [],
+          rematch: null,
+        }),
         host_player_id: profile.player_id,
         host_profile: profile,
       }],
@@ -1901,6 +1996,187 @@ async function submitDuelResult(result) {
   const updated = await patchDuelRoom(room.room_code, { [key]: payload }, "return=representation");
   if (updated) state.duel.room = updated;
   return updated;
+}
+
+async function requestDuelRematch(room) {
+  const freshRoom = await fetchDuelRoom(room.room_code).catch(() => room);
+  const currentRoom = freshRoom || room;
+  const existingOffer = getPendingDuelRematch(currentRoom);
+  if (existingOffer?.requested_by && existingOffer.requested_by !== state.playerProfile?.player_id) {
+    showDuelRematchOffer(currentRoom);
+    return;
+  }
+  const meta = getDuelKitchenMetaWithCurrentRound(currentRoom);
+  const side = getDuelSide(currentRoom);
+  const nextMeta = {
+    ...meta,
+    rematch: {
+      status: "pending",
+      requested_by: state.playerProfile?.player_id || "",
+      requested_side: side,
+      requested_at: new Date().toISOString(),
+      round: meta.round + 1,
+    },
+  };
+  const updated = await patchDuelRoom(currentRoom.room_code, {
+    booster_kit: withDuelMeta(currentRoom.booster_kit, nextMeta),
+  });
+  showDuelRematchWaiting(updated || currentRoom);
+}
+
+function showDuelRematchWaiting(room) {
+  clearRuntime();
+  state.screen = "duelRematchWaiting";
+  state.duel = {
+    room,
+    side: getDuelSide(room),
+    resultSubmitted: false,
+  };
+  setDuelBackground(ASSETS.duel.vsBg);
+  render(`
+    <section class="screen duel-result-screen duel-rematch-waiting-screen">
+      <div class="top-row">
+        <button class="back-button" type="button" id="backMatchPrep">←</button>
+        <div id="statusMount"></div>
+        <div id="soundMount"></div>
+      </div>
+      <div class="duel-room-card loading">
+        <span class="duel-round-label">${escapeHtml(formatDuelRoundLabel(getDuelRoundNumber(room) + 1))}</span>
+        <h2>Реванш на кухне</h2>
+        <p>Ждём, когда соперник ворвётся в бой</p>
+        <div class="duel-loader"></div>
+      </div>
+      <div class="result-actions duel-waiting-actions">
+        <button class="action-button secondary full" type="button" id="backToMatch">${DUEL_COPY.back}</button>
+      </div>
+    </section>
+  `, "duel-app");
+  mountStatus();
+  document.querySelector("#soundMount").append(soundButton());
+  const back = () => {
+    playSound("click");
+    state.matchMode = "duel";
+    showMatchPrepScreen();
+  };
+  document.querySelector("#backMatchPrep").addEventListener("click", back);
+  document.querySelector("#backToMatch").addEventListener("click", back);
+  startDuelRoomPolling(room.room_code, (freshRoom) => {
+    state.duel.room = freshRoom;
+    const offer = getDuelMeta(freshRoom).rematch;
+    if (offer?.status === "accepted" && freshRoom.starts_at && !freshRoom.host_result && !freshRoom.guest_result) {
+      showDuelVsScreen(freshRoom);
+      return;
+    }
+    if (offer?.status === "declined") {
+      showGlobalToast("Соперник пока не готов");
+      showDuelResultScreen(freshRoom);
+    }
+  });
+}
+
+function startDuelRematchOfferPolling(room) {
+  const ownId = state.playerProfile?.player_id || "";
+  let modalOpen = false;
+  const checkOffer = (freshRoom) => {
+    const offer = getPendingDuelRematch(freshRoom);
+    if (!offer || offer.requested_by === ownId || modalOpen || state.screen !== "duelResult") return;
+    modalOpen = true;
+    showDuelRematchOffer(freshRoom, () => {
+      modalOpen = false;
+    });
+  };
+  checkOffer(room);
+  startDuelRoomPolling(room.room_code, (freshRoom) => {
+    state.duel.room = freshRoom;
+    checkOffer(freshRoom);
+  });
+}
+
+function showDuelRematchOffer(room, onClose = () => {}) {
+  document.querySelector(".duel-rematch-modal")?.remove();
+  const requester = getDuelPlayerProfile(room, getDuelMeta(room).rematch?.requested_side) || {};
+  const overlay = document.createElement("div");
+  overlay.className = "duel-rematch-modal";
+  overlay.innerHTML = `
+    <div class="duel-rematch-card" role="dialog" aria-modal="true" aria-label="Реванш на кухне">
+      <h3>Соперник зовёт на реванш</h3>
+      <p>${escapeHtml(requester.name || "Соперник")} предлагает ещё один раунд на этой кухне.</p>
+      <div class="duel-rematch-actions">
+        <button class="action-button full" type="button" id="acceptDuelRematch">Ворваться в бой</button>
+        <button class="action-button secondary full" type="button" id="declineDuelRematch">Нет</button>
+      </div>
+    </div>
+  `;
+  app.append(overlay);
+  const close = () => {
+    overlay.remove();
+    onClose();
+  };
+  overlay.querySelector("#acceptDuelRematch").addEventListener("click", async () => {
+    playSound("click");
+    overlay.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+    const updated = await acceptDuelRematch(room).catch(() => null);
+    close();
+    if (updated) showDuelVsScreen(updated);
+    else showGlobalToast("Кухня не успела принять реванш");
+  });
+  overlay.querySelector("#declineDuelRematch").addEventListener("click", async () => {
+    playSound("click");
+    overlay.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+    await declineDuelRematch(room).catch(() => null);
+    close();
+    showGlobalToast("Реванш отложили");
+  });
+}
+
+async function acceptDuelRematch(room) {
+  const freshRoom = await fetchDuelRoom(room.room_code).catch(() => room);
+  const currentRoom = freshRoom || room;
+  const meta = getDuelKitchenMetaWithCurrentRound(currentRoom);
+  const nextRound = Math.max(meta.round + 1, Number(meta.rematch?.round) || meta.round + 1);
+  const setup = buildDuelRoundSetup(currentRoom.difficulty, currentRoom.room_code);
+  const startsAt = new Date(Date.now() + 4200).toISOString();
+  const nextMeta = {
+    ...meta,
+    round: nextRound,
+    rematch: {
+      ...(meta.rematch || {}),
+      status: "accepted",
+      accepted_by: state.playerProfile?.player_id || "",
+      accepted_at: new Date().toISOString(),
+      round: nextRound,
+    },
+  };
+  return patchDuelRoom(currentRoom.room_code, {
+    status: "ready",
+    timer_seconds: setup.timer_seconds,
+    seed: setup.seed,
+    board: setup.board,
+    goals: setup.goals,
+    booster_kit: withDuelMeta(setup.booster_kit, nextMeta),
+    host_progress: null,
+    guest_progress: null,
+    host_result: null,
+    guest_result: null,
+    starts_at: startsAt,
+  });
+}
+
+async function declineDuelRematch(room) {
+  const freshRoom = await fetchDuelRoom(room.room_code).catch(() => room);
+  const currentRoom = freshRoom || room;
+  const meta = getDuelMeta(currentRoom);
+  return patchDuelRoom(currentRoom.room_code, {
+    booster_kit: withDuelMeta(currentRoom.booster_kit, {
+      ...meta,
+      rematch: {
+        ...(meta.rematch || {}),
+        status: "declined",
+        declined_by: state.playerProfile?.player_id || "",
+        declined_at: new Date().toISOString(),
+      },
+    }),
+  });
 }
 
 function showGlobalToast(text) {
@@ -2133,6 +2409,11 @@ function openSelectHelpDialog() {
       button: "Честная кухня!",
     },
     {
+      tab: "Реванш",
+      text: "После поединка можно позвать соперника на реванш. Код кухни остаётся тем же, а общий счёт серии копится в рейтинге этой кухни.",
+      button: "Ещё раунд!",
+    },
+    {
       tab: "Мини-игры",
       text: "Аэрогриль, блендер и кофемашина — маленькие кухонные забеги. Проходишь раунд — получаешь монетки.",
       button: "Ого!",
@@ -2144,7 +2425,7 @@ function openSelectHelpDialog() {
     },
     {
       tab: "Сложность",
-      text: "Выбери ритм кухни: легко, нормально или сложно. Можно идти в рейтинг, а можно сначала пополнить монетный запас.",
+      text: "Сложность двигает уровень кухни: лёгкий зачёт даёт 1 шаг, нормальный — 2, сложный — 3. Очки рейтинга считаются отдельно.",
       button: "На кухню!",
     },
   ];
@@ -3113,6 +3394,11 @@ function showDuelResultWaiting() {
 function showDuelResultScreen(room) {
   clearRuntime();
   state.screen = "duelResult";
+  state.duel = {
+    room,
+    side: getDuelSide(room),
+    resultSubmitted: true,
+  };
   const side = getDuelSide(room);
   const opponentSide = getDuelOpponentSide(side);
   const myProfile = getDuelPlayerProfile(room, side) || normalizeDuelProfile();
@@ -3120,7 +3406,8 @@ function showDuelResultScreen(room) {
   const myResult = side === "host" ? room.host_result : room.guest_result;
   const rivalResult = opponentSide === "host" ? room.host_result : room.guest_result;
   const verdict = getDuelVerdict(myResult, rivalResult);
-  const resultAvatar = normalizeAvatarId(state.playerProfile?.avatar_id);
+  const roundNumber = getDuelRoundNumber(room);
+  const kitchenRows = getDuelKitchenRows(room);
   const bg = verdict.tone === "win"
     ? ASSETS.duel.victoryBg
     : verdict.tone === "lose"
@@ -3138,14 +3425,18 @@ function showDuelResultScreen(room) {
         <div id="statusMount"></div>
         <div id="soundMount"></div>
       </div>
-      <div class="duel-result-hero ${resultAvatar} ${verdict.tone}">
-        <img src="${getDuelResultCharacter(verdict.tone)}" alt="">
-      </div>
       <div class="duel-result-card ${verdict.tone}">
+        <span class="duel-round-label">${escapeHtml(formatDuelRoundLabel(roundNumber))}</span>
         <h2>${escapeHtml(verdict.title)}</h2>
         <p>${escapeHtml(verdict.phrase)}</p>
         <div class="duel-score-table">
           ${scoreRows.map((row) => duelScoreRow(row.profile, row.result, row.place, row.fallbackName)).join("")}
+        </div>
+        <div class="duel-kitchen-rating">
+          <strong>Рейтинг этой кухни</strong>
+          <div class="duel-score-table">
+            ${kitchenRows.map(duelKitchenScoreRow).join("")}
+          </div>
         </div>
       </div>
       <div class="result-actions">
@@ -3166,9 +3457,21 @@ function showDuelResultScreen(room) {
   document.querySelector("#duelRematch").addEventListener("click", async () => {
     playSound("click");
     state.difficulty = room.difficulty;
-    await showCreateDuelRoomScreen();
+    const button = document.querySelector("#duelRematch");
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Зовём на реванш...";
+    }
+    await requestDuelRematch(room).catch(() => {
+      showGlobalToast("Реванш не отправился, попробуем ещё раз");
+      if (button) {
+        button.disabled = false;
+        button.textContent = DUEL_COPY.rematch;
+      }
+    });
   });
   submitDuelRatingResult(myResult?.score || 0, room, verdict);
+  startDuelRematchOfferPolling(room);
   if (verdict.tone === "win") {
     playSound("win");
     confetti();
@@ -3223,6 +3526,20 @@ function duelScoreRow(profile, result = {}, place, fallbackName) {
       </div>
       <em>${place} место</em>
       <b>${Math.max(0, Number(result?.score) || 0)}</b>
+    </div>
+  `;
+}
+
+function duelKitchenScoreRow(row) {
+  return `
+    <div class="duel-score-row kitchen ${row.place === 1 ? "leader" : ""}">
+      ${duelAvatar(row.profile)}
+      <div>
+        <strong>${escapeHtml(row.profile?.name || (row.side === "host" ? "Хозяин кухни" : "Соперник"))}</strong>
+        <span>вся серия на этой кухне</span>
+      </div>
+      <em>${row.place} место</em>
+      <b>${Math.max(0, Number(row.score) || 0)}</b>
     </div>
   `;
 }
@@ -3287,7 +3604,7 @@ function startMatchGame(options = {}) {
     selected: null,
     selectedBooster: null,
     duel: isDuel,
-    duelInventory: isDuel ? { ...(duelRoom.booster_kit || {}) } : null,
+    duelInventory: isDuel ? getDuelBoosterItems(duelRoom.booster_kit) : null,
     duelEndsAt: isDuel ? Date.now() + getDuelTimerSeconds(duelRoom.difficulty) * 1000 : 0,
     duelLastProgressAt: 0,
     random,
@@ -3303,6 +3620,7 @@ function startMatchGame(options = {}) {
   game.goalTotal = Object.values(game.goals).reduce((sum, value) => sum + value, 0);
 
   area.classList.add("match-stage");
+  if (isDuel) area.classList.add("duel-match-stage");
   area.innerHTML = `
     <div class="match-status">
       <div class="match-character" id="matchCharacter"></div>
@@ -3548,6 +3866,7 @@ function startMatchGame(options = {}) {
       game.selected = null;
       game.locked = true;
       renderMatch();
+      updateMatchHud();
       applyBoosterClear(clearSet, combo || "special", specialComboPhrase(combo, first, second));
       return;
     }
@@ -3566,6 +3885,7 @@ function startMatchGame(options = {}) {
     game.selected = null;
     game.locked = true;
     renderMatch();
+    updateMatchHud();
     resolveMatches(matches).then(() => {
       game.locked = false;
       if (game.moves > 0 && !hasAnyMatchMove(game.board, size) && !isMatchWon(game.goals)) reshuffleBoard();
@@ -3801,7 +4121,10 @@ function startMatchGame(options = {}) {
     } else {
       setProgress(remainingGoalRatio(game.goals, game.goalTotal), `Ходы: ${game.moves} · осталось собрать цели`);
     }
-    document.querySelector("#matchGoals").innerHTML = Object.entries(game.goals).map(([type, left]) => `
+    const goalEntries = Object.entries(game.goals);
+    const goalsMount = document.querySelector("#matchGoals");
+    goalsMount.className = `match-goals goals-count-${Math.min(goalEntries.length, 3)}`;
+    goalsMount.innerHTML = goalEntries.map(([type, left]) => `
       <div class="goal-chip ${left <= 0 ? "done" : ""}">
         <img src="${ASSETS.match.tiles[type]}" alt="">
         <span>${Math.max(0, left)}</span>
@@ -4226,7 +4549,7 @@ function showResult(character, score, outcome = "win") {
 async function submitDuelRatingResult(score, room, verdict) {
   if (!verdict?.ratingWin || !room?.room_code || !state.playerProfile) return;
   if (!room.host_result || !room.guest_result) return;
-  const sessionId = `duel_${room.room_code}_${state.playerProfile.player_id}`;
+  const sessionId = `duel_${room.room_code}_round_${getDuelRoundNumber(room)}_${state.playerProfile.player_id}`;
   addLocalRatingScore(score, sessionId, room.difficulty || state.difficulty);
   refreshRatingSummary();
   if (!isSupabaseConfigured()) return;
