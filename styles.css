@@ -1078,10 +1078,10 @@ h2 {
 }
 
 .hud.duel-game-hud {
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-columns: minmax(0, 1fr) minmax(72px, auto) minmax(86px, auto) 42px;
   grid-template-areas:
-    "title timer score help"
-    "rival rival rival rival";
+    "title title title help"
+    "rival timer score score";
   align-items: center;
   gap: 7px;
 }
@@ -1091,6 +1091,7 @@ h2 {
 }
 
 .hud.duel-game-hud .game-title {
+  width: 100%;
   min-height: 40px;
   display: grid;
   place-items: center;
@@ -1100,7 +1101,7 @@ h2 {
 
 .hud.duel-game-hud .game-title strong {
   max-width: 100%;
-  font-size: clamp(15px, 4.2vw, 18px);
+  font-size: clamp(17px, 4.8vw, 20px);
   line-height: 1;
   white-space: nowrap;
   overflow: hidden;
@@ -1840,9 +1841,9 @@ h2 {
 
 .duel-timer-pill {
   grid-area: timer;
-  min-width: 76px;
+  min-width: 72px;
   place-items: center;
-  font-size: 18px;
+  font-size: 17px;
 }
 
 .duel-timer-pill.urgent {
@@ -1853,16 +1854,17 @@ h2 {
 
 .duel-rival-pill {
   grid-area: rival;
-  grid-template-columns: 36px minmax(54px, 1fr) auto;
+  width: 100%;
+  max-width: none;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
   gap: 6px;
-  max-width: 160px;
   padding: 3px 9px 3px 4px;
   font-size: 12px;
 }
 
 .duel-rival-pill .duel-avatar {
-  width: 36px;
-  height: 32px;
+  width: 32px;
+  height: 30px;
 }
 
 .duel-rival-pill span {
@@ -4296,6 +4298,68 @@ h2 {
 
   .hud .rating-mini {
     min-width: 29px;
+  }
+
+  .screen.is-game .hud.duel-game-hud {
+    grid-template-columns: minmax(0, 1fr) minmax(70px, auto) minmax(84px, auto) 42px;
+    grid-template-areas:
+      "title title title help"
+      "rival timer score score";
+  }
+
+  .screen.is-game .hud.duel-game-hud .score-pill {
+    min-width: 84px;
+    padding-inline: 8px;
+    font-size: 13px;
+  }
+
+  .screen.is-game .hud.duel-game-hud .help-button {
+    min-width: 42px;
+  }
+
+  .match-stage {
+    gap: 7px;
+    padding: 8px;
+  }
+
+  .match-status {
+    grid-template-columns: 66px minmax(0, 1fr);
+    gap: 6px;
+    min-height: 58px;
+    padding: 5px 6px;
+  }
+
+  .match-character img {
+    width: 66px;
+    height: 54px;
+  }
+
+  .match-goals {
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: 5px;
+    min-width: 0;
+  }
+
+  .goal-chip {
+    min-width: 0;
+    min-height: 32px;
+    grid-template-columns: 25px auto;
+    gap: 3px;
+    padding: 3px 6px;
+    font-size: 12px;
+  }
+
+  .goal-chip img {
+    width: 25px;
+    height: 25px;
+  }
+
+  .match-board {
+    width: min(100%, calc(100dvw - 60px), 318px);
+    gap: 3px;
+    padding: 6px;
+    border-radius: 20px;
   }
 }
 
