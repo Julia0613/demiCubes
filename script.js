@@ -2129,6 +2129,31 @@ function showDuelRematchOffer(room, onClose = () => {}) {
   });
 }
 
+function showDuelKitchenHelp() {
+  if (document.querySelector(".duel-info-modal")) return;
+  playSound("click");
+  const overlay = document.createElement("div");
+  overlay.className = "duel-info-modal";
+  overlay.innerHTML = `
+    <div class="duel-info-card" role="dialog" aria-modal="true" aria-label="Как читать итоги кухни">
+      <h3>Как читать итоги?</h3>
+      <p><strong>Очки этого раунда</strong> — результат только последней схватки.</p>
+      <p><strong>Серия этой кухни</strong> — сумма всех раундов и реваншей в этой комнате.</p>
+      <p>В общий рейтинг игрока добавляется только победа с закрытыми целями.</p>
+      <button class="action-button full" type="button" id="closeDuelInfo">Понятно</button>
+    </div>
+  `;
+  app.append(overlay);
+  const close = () => {
+    overlay.remove();
+    playSound("click");
+  };
+  overlay.querySelector("#closeDuelInfo").addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+}
+
 async function acceptDuelRematch(room) {
   const freshRoom = await fetchDuelRoom(room.room_code).catch(() => room);
   const currentRoom = freshRoom || room;
@@ -3426,14 +3451,26 @@ function showDuelResultScreen(room) {
         <div id="soundMount"></div>
       </div>
       <div class="duel-result-card ${verdict.tone}">
-        <span class="duel-round-label">${escapeHtml(formatDuelRoundLabel(roundNumber))}</span>
+        <div class="duel-result-head">
+          <span class="duel-round-label">${escapeHtml(formatDuelRoundLabel(roundNumber))}</span>
+          <button class="duel-info-button" type="button" id="duelKitchenHelp" aria-label="Как читать итоги кухни?">?</button>
+        </div>
         <h2>${escapeHtml(verdict.title)}</h2>
         <p>${escapeHtml(verdict.phrase)}</p>
-        <div class="duel-score-table">
-          ${scoreRows.map((row) => duelScoreRow(row.profile, row.result, row.place, row.fallbackName)).join("")}
+        <div class="duel-score-section duel-round-rating">
+          <div class="duel-section-title">
+            <strong>Очки этого раунда</strong>
+            <span>кто выше именно сейчас</span>
+          </div>
+          <div class="duel-score-table">
+            ${scoreRows.map((row) => duelScoreRow(row.profile, row.result, row.place, row.fallbackName)).join("")}
+          </div>
         </div>
-        <div class="duel-kitchen-rating">
-          <strong>Рейтинг этой кухни</strong>
+        <div class="duel-score-section duel-kitchen-rating">
+          <div class="duel-section-title">
+            <strong>Серия этой кухни</strong>
+            <span>сумма всех раундов и реваншей</span>
+          </div>
           <div class="duel-score-table">
             ${kitchenRows.map(duelKitchenScoreRow).join("")}
           </div>
@@ -3454,6 +3491,7 @@ function showDuelResultScreen(room) {
   };
   document.querySelector("#backMatchPrep").addEventListener("click", back);
   document.querySelector("#backToMatch").addEventListener("click", back);
+  document.querySelector("#duelKitchenHelp").addEventListener("click", showDuelKitchenHelp);
   document.querySelector("#duelRematch").addEventListener("click", async () => {
     playSound("click");
     state.difficulty = room.difficulty;
