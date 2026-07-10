@@ -314,58 +314,6 @@ const MATCH_TILE_LABELS = {
   ice: "лёд",
 };
 let matchTileId = 0;
-const HELP_COPY = {
-  select: {
-    title: "Добро пожаловать на кухню!",
-    lines: [
-      "Главный челлендж — «Кубики сошлись». Там растёт рейтинг.",
-      "В «Кубиках» есть соло-забег и кулинарный поединок по коду кухни.",
-      "Уровень кухни растёт шагами: легко +1, нормально +2, сложно +3.",
-      "Мини-игры — быстрые забеги за монетками.",
-      "Монетки меняются на бустеры в лавке.",
-    ],
-    tip: "Очки показывают место в рейтинге, а шаги сложности двигают уровень.",
-  },
-  airfryer: {
-    title: "Башня хруста",
-    lines: [
-      "Жди момент, когда аэрогриль подплывёт ровно над башней.",
-      "Тап — и блок встаёт на место. Сильный промах завершает раунд.",
-      "Три идеальных попадания подряд приносят бонусную монетку.",
-    ],
-    tip: "Чем сложнее режим, тем вкуснее награда за победу.",
-  },
-  blender: {
-    title: "Смузи-охота",
-    lines: [
-      "Лови фрукты, мяту и лёд — всё вкусное летит в смузи.",
-      "Бомбы, TNT и отчёты оставляем за бортом стакана.",
-      "Пять точных ловушек подряд дают бонусную монетку.",
-    ],
-    tip: "Если хороший продукт улетел вниз, теряется жизнь. Всего их три.",
-  },
-  coffee: {
-    title: "Идеальный кофе",
-    lines: [
-      "На каждом этапе поймай бегунок в удачный момент.",
-      "Зелёная зона делает кофе бодрым и засчитанным.",
-      "Попадание в самый центр приносит бонусную монетку.",
-    ],
-    tip: "Помол, пролив, пенка — три шага до ароматной победы.",
-  },
-  match: {
-    title: "Кубики сошлись",
-    lines: [
-      "Перетаскивай плитки, чтобы собрать три одинаковые в ряд.",
-      "Закрывай цели до того, как закончатся ходы.",
-      "В кулинарном поединке создай кухню или войди по коду соперника.",
-      "В поединке у обоих одинаковые цели, поле и таймер.",
-      "Реванш идёт в той же кухне: текущий раунд считается отдельно, серия — отдельно.",
-      "Звёзды, сердца и бустеры устраивают красивую уборку поля.",
-    ],
-    tip: "Уровень растёт шагами сложности: легко +1, нормально +2, сложно +3.",
-  },
-};
 const STATUS_LEVELS = [
   {
     minPercent: 0,
@@ -709,16 +657,23 @@ function profileAvatarButton() {
   return button;
 }
 
+function formatShortScore(value) {
+  const score = Math.max(0, Number(value) || 0);
+  if (score < 10000) return String(score);
+  return `${Math.round(score / 1000)}к`;
+}
+
 function leaderboardButton() {
   const info = getRatingStatus();
   const button = document.createElement("button");
   button.className = "rating-board-button";
   button.type = "button";
   button.setAttribute("aria-label", `Рейтинг: ${info.level.title}, ${info.totalScore} очков`);
+  const shortScore = formatShortScore(info.totalScore);
   button.innerHTML = `
     <span class="status-kicker">Рейтинг</span>
     <strong>Ур. ${info.localLevelNumber}/${info.localLevelMax}</strong>
-    <span class="rating-mini">${info.totalScore}</span>
+    <span class="rating-mini ${shortScore.length >= 4 ? "compact" : ""}">${shortScore}</span>
   `;
   button.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -1042,27 +997,51 @@ function applyLeaderboardData(data) {
   else if (data?.ok && state.playerProfile) saveRatingStats(emptyRatingStats(), { keepBestLocal: false });
 }
 
-function refreshRatingSummary() {
-  const summary = document.querySelector("#ratingSummary");
-  if (!summary) return;
-  const info = getRatingStatus();
+function getLevelProgress(info) {
+  const currentFloor = LOCAL_LEVEL_STEPS[info.localLevelIndex] ?? 0;
+  const nextFloor = LOCAL_LEVEL_STEPS[info.localLevelIndex + 1] ?? null;
+  if (nextFloor === null) {
+    return { percent: 100, label: "Максимальный уровень кухни!" };
+  }
+  const span = Math.max(1, nextFloor - currentFloor);
+  const into = Math.max(0, info.levelPoints - currentFloor);
+  const left = Math.max(1, nextFloor - info.levelPoints);
+  return {
+    percent: Math.round(Math.min(1, into / span) * 100),
+    label: `До уровня ${info.localLevelNumber + 1}: ещё ${left} ${plural(left, ["шаг", "шага", "шагов"])} кухни`,
+  };
+}
+
+function ratingSummaryHTML(info) {
   const rankText = info.rank && info.total_players
     ? `${info.rank} из ${info.total_players}`
     : "пока ждём таблицу";
   const statusLabel = info.hasGlobalPosition ? "Статус в рейтинге" : "Уровень в игре";
-  const localLine = info.hasGlobalPosition
-    ? `<small class="rating-summary-note">В игре: уровень ${info.localLevelNumber}/${info.localLevelMax} · ${escapeHtml(info.localLevel.title)}</small>`
-    : `<small class="rating-summary-note">Уровень ${info.localLevelNumber}/${info.localLevelMax} · ${info.levelPoints} ${plural(info.levelPoints, ["шаг", "шага", "шагов"])} кухни</small>`;
-  summary.innerHTML = `
+  const secondChip = info.hasGlobalPosition
+    ? escapeHtml(info.localLevel.title)
+    : `${info.levelPoints} ${plural(info.levelPoints, ["шаг", "шага", "шагов"])} кухни`;
+  const progress = getLevelProgress(info);
+  return `
     <div class="rating-summary-main">
-      <span>${statusLabel}</span>
+      <span class="rating-kicker">${statusLabel}</span>
       <strong>${escapeHtml(info.level.title)}</strong>
       <p>${escapeHtml(info.level.desc)}</p>
-      ${localLine}
+      <div class="rating-meta">
+        <span class="rating-chip">Уровень ${info.localLevelNumber}/${info.localLevelMax}</span>
+        <span class="rating-chip">${secondChip}</span>
+      </div>
+      <div class="rating-level-track" aria-hidden="true"><i style="width:${progress.percent}%"></i></div>
+      <small class="rating-level-note">${progress.label}</small>
     </div>
     <div class="rating-stat points"><span>Очки</span><strong>${info.totalScore}</strong></div>
     <div class="rating-stat place"><span>Место</span><strong>${escapeHtml(rankText)}</strong></div>
   `;
+}
+
+function refreshRatingSummary() {
+  const summary = document.querySelector("#ratingSummary");
+  if (!summary) return;
+  summary.innerHTML = ratingSummaryHTML(getRatingStatus());
 }
 
 async function refreshRatingStats() {
@@ -1124,6 +1103,7 @@ function openProfileModal(options = {}) {
   overlay.innerHTML = `
     <form class="profile-card" id="profileForm">
       ${required ? "" : '<button class="status-close" type="button" id="closeProfile">×</button>'}
+      <button class="duel-info-button profile-coach-help" type="button" id="profileCoachHelp" aria-label="Как устроен профиль?">?</button>
       <h3>Как тебя записать в рейтинг?</h3>
       <p>Имя, роль, отдел и герой будут видны в рейтинге “Кубики сошлись”.</p>
       <div class="profile-section-title">Выбери своего героя</div>
@@ -1175,6 +1155,13 @@ function openProfileModal(options = {}) {
     }
   };
   overlay.querySelector("#closeProfile")?.addEventListener("click", close);
+  overlay.querySelector("#profileCoachHelp").addEventListener("click", () => {
+    playSound("click");
+    runCoach("profile");
+  });
+  after(450, () => {
+    if (document.querySelector(".profile-modal")) maybeAutoCoach("profile");
+  });
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) close();
   });
@@ -1199,7 +1186,7 @@ function openProfileModal(options = {}) {
       return;
     }
     if (!isSupabaseConfigured()) {
-      showGlobalToast("База сейчас недоступна");
+      showGlobalToast("Кухня временно не отвечает");
       return;
     }
     const button = overlay.querySelector("#loadProfileId");
@@ -1250,7 +1237,7 @@ function openProfileModal(options = {}) {
           return;
         }
       } catch {
-        showGlobalToast("Не удалось проверить дубль");
+        showGlobalToast("Кухня не дозвонилась до списка поваров");
         submitButton.disabled = false;
         submitButton.textContent = required ? "Записать меня" : "Сохранить";
         return;
@@ -1271,35 +1258,20 @@ function openLeaderboardModal(options = {}) {
   if (document.querySelector(".leaderboard-modal")) return;
   const department = state.playerProfile?.department ? normalizeDepartment(state.playerProfile.department) : "";
   const info = getRatingStatus();
-  const rankText = info.rank && info.total_players
-    ? `${info.rank} из ${info.total_players}`
-    : "пока ждём таблицу";
-  const statusLabel = info.hasGlobalPosition ? "Статус в рейтинге" : "Уровень в игре";
-  const localLine = info.hasGlobalPosition
-    ? `<small class="rating-summary-note">В игре: уровень ${info.localLevelNumber}/${info.localLevelMax} · ${escapeHtml(info.localLevel.title)}</small>`
-    : `<small class="rating-summary-note">Уровень ${info.localLevelNumber}/${info.localLevelMax} · ${info.levelPoints} ${plural(info.levelPoints, ["шаг", "шага", "шагов"])} кухни</small>`;
   const overlay = document.createElement("div");
   overlay.className = "leaderboard-modal";
   overlay.innerHTML = `
     <div class="leaderboard-card">
       <button class="status-close" type="button" id="closeLeaderboard">×</button>
+      <button class="duel-info-button leaderboard-help" type="button" id="leaderboardHelp" aria-label="Как устроен рейтинг?">?</button>
       <h3>${escapeHtml(options.title || "Рейтинговая доска")}</h3>
-      <div class="rating-summary" id="ratingSummary">
-        <div class="rating-summary-main">
-          <span>${statusLabel}</span>
-          <strong>${escapeHtml(info.level.title)}</strong>
-          <p>${escapeHtml(info.level.desc)}</p>
-          ${localLine}
-        </div>
-        <div class="rating-stat points"><span>Очки</span><strong>${info.totalScore}</strong></div>
-        <div class="rating-stat place"><span>Место</span><strong>${escapeHtml(rankText)}</strong></div>
-      </div>
+      <div class="rating-summary" id="ratingSummary">${ratingSummaryHTML(info)}</div>
       <div class="leaderboard-tabs" role="tablist" aria-label="Тип рейтинга">
         <button class="leaderboard-tab active" type="button" data-scope="company">Компания</button>
         <button class="leaderboard-tab" type="button" data-scope="department" ${department ? "" : "disabled"}>Мой отдел</button>
       </div>
       <div class="leaderboard-list" id="leaderboardList">
-        <div class="leaderboard-empty">Загружаем рейтинг...</div>
+        <div class="leaderboard-empty">Кухня считает очки...</div>
       </div>
     </div>
   `;
@@ -1309,6 +1281,10 @@ function openLeaderboardModal(options = {}) {
     playSound("click");
   };
   overlay.querySelector("#closeLeaderboard").addEventListener("click", close);
+  overlay.querySelector("#leaderboardHelp").addEventListener("click", () => {
+    playSound("click");
+    runCoach("leaderboard");
+  });
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) close();
   });
@@ -1325,7 +1301,7 @@ function openLeaderboardModal(options = {}) {
 
 async function loadLeaderboardInto(container, scope = "company") {
   if (!container) return;
-  container.innerHTML = '<div class="leaderboard-empty">Загружаем рейтинг...</div>';
+  container.innerHTML = '<div class="leaderboard-empty">Кухня считает очки...</div>';
   try {
     const data = await fetchLeaderboard(scope);
     applyLeaderboardData(data);
@@ -1335,9 +1311,15 @@ async function loadLeaderboardInto(container, scope = "company") {
       container.innerHTML = `<div class="leaderboard-empty">${scope === "department" ? "В отделе пока пусто. Можно открыть счёт." : "Пока пусто. Самое время стать первым."}</div>`;
       return;
     }
-    container.innerHTML = rows.map((row, index) => `
-      <div class="leaderboard-row">
-        <strong>${index + 1}</strong>
+    const ownId = state.playerProfile?.player_id || "";
+    container.innerHTML = rows.map((row, index) => {
+      const place = index + 1;
+      const classes = ["leaderboard-row"];
+      if (place <= 3) classes.push(`top-${place}`);
+      if (ownId && row.player_id === ownId) classes.push("me");
+      return `
+      <div class="${classes.join(" ")}">
+        <strong>${place}</strong>
         <img class="leaderboard-avatar" src="${getProfileAvatarIcon(row.avatar_id)}" alt="">
         <div>
           <span>${escapeHtml(row.display_name || "Игрок")}</span>
@@ -1346,7 +1328,8 @@ async function loadLeaderboardInto(container, scope = "company") {
         <b>${Number(row.total_score || 0)}</b>
         <small>${Number(row.rounds || 0)} ${plural(Number(row.rounds || 0), ["раунд", "раунда", "раундов"])}</small>
       </div>
-    `).join("");
+    `;
+    }).join("");
   } catch {
     const info = getRatingStatus();
     const profile = state.playerProfile || {};
@@ -1739,11 +1722,13 @@ function getDuelOpponentProfile(room = state.duel?.room) {
 }
 
 function getDuelKitForDifficulty(difficultyKey) {
-  if (difficultyKey !== "hard") return {};
-  const bonusPool = ["shuffle", "star", "bomb"];
+  if (difficultyKey === "easy") return {};
+  const pool = ["hammer", "shuffle", "star", "bomb"];
+  const first = randomItem(pool);
+  const second = randomItem(pool.filter((key) => key !== first));
   return {
-    hammer: 1,
-    [randomItem(bonusPool)]: 1,
+    [first]: 1,
+    [second]: 1,
   };
 }
 
@@ -2044,6 +2029,13 @@ function showDuelRematchWaiting(room) {
         <span class="duel-round-label">${escapeHtml(formatDuelRoundLabel(getDuelRoundNumber(room) + 1))}</span>
         <h2>Реванш на кухне</h2>
         <p>Ждём, когда соперник ворвётся в бой</p>
+        <div class="duel-waiting-rival">
+          ${duelAvatar(getDuelOpponentProfile(room))}
+          <div>
+            <strong>${escapeHtml(getDuelOpponentProfile(room)?.name || "Соперник")}</strong>
+            <span>приглашение отправлено</span>
+          </div>
+        </div>
         <div class="duel-loader"></div>
       </div>
       <div class="result-actions duel-waiting-actions">
@@ -2126,31 +2118,6 @@ function showDuelRematchOffer(room, onClose = () => {}) {
     await declineDuelRematch(room).catch(() => null);
     close();
     showGlobalToast("Реванш отложили");
-  });
-}
-
-function showDuelKitchenHelp() {
-  if (document.querySelector(".duel-info-modal")) return;
-  playSound("click");
-  const overlay = document.createElement("div");
-  overlay.className = "duel-info-modal";
-  overlay.innerHTML = `
-    <div class="duel-info-card" role="dialog" aria-modal="true" aria-label="Как читать итоги кухни">
-      <h3>Как читать итоги?</h3>
-      <p><strong>Очки этого раунда</strong> — результат только последней схватки.</p>
-      <p><strong>Серия этой кухни</strong> — сумма всех раундов и реваншей в этой комнате.</p>
-      <p>В общий рейтинг игрока добавляется только победа с закрытыми целями.</p>
-      <button class="action-button full" type="button" id="closeDuelInfo">Понятно</button>
-    </div>
-  `;
-  app.append(overlay);
-  const close = () => {
-    overlay.remove();
-    playSound("click");
-  };
-  overlay.querySelector("#closeDuelInfo").addEventListener("click", close);
-  overlay.addEventListener("click", (event) => {
-    if (event.target === overlay) close();
   });
 }
 
@@ -2270,7 +2237,10 @@ function showCharacterSelect() {
   mountStatus();
   mountWallet();
   document.querySelector("#selectHelpButton").append(safeImg(ASSETS.buttons.help, "Как играть"));
-  document.querySelector("#selectHelpButton").addEventListener("click", openSelectHelpDialog);
+  document.querySelector("#selectHelpButton").addEventListener("click", () => {
+    playSound("click");
+    runCoach("select");
+  });
   document.querySelector("#soundMount").append(soundButton());
   document.querySelector("#backStart").addEventListener("click", () => {
     playSound("click");
@@ -2348,7 +2318,14 @@ function gameShell(characterKey, title, subtitle, extraHud = "") {
   `);
   if (isRatingGame) mountStatus();
   document.querySelector("#helpButton").append(safeImg(ASSETS.buttons.help, "Как играть"));
-  document.querySelector("#helpButton").addEventListener("click", () => openHelpModal(characterKey));
+  document.querySelector("#helpButton").addEventListener("click", () => {
+    playSound("click");
+    runCoach(getCoachKind());
+  });
+  after(520, () => {
+    const kind = getCoachKind();
+    if (kind && kind !== "matchDuel") maybeAutoCoach(kind);
+  });
   document.querySelector("#pauseButton").append(safeImg(ASSETS.buttons.pause, "Пауза"));
   document.querySelector("#pauseButton").addEventListener("click", openPauseMenu);
 }
@@ -2412,141 +2389,6 @@ function closePauseMenu() {
   document.querySelector(".pause-modal")?.remove();
   state.paused = false;
   playSound("click");
-}
-
-function openSelectHelpDialog() {
-  if (document.querySelector(".help-modal")) return;
-  playSound("click");
-  const steps = [
-    {
-      tab: "Кубики",
-      text: "Вот главная игра: двигай плитки, собирай цели и набирай очки рейтинга. Чем удачнее раунд, тем веселее доска!",
-      button: "Ух ты!",
-    },
-    {
-      tab: "Поединок",
-      text: "В «Кубиках» можно устроить кулинарный поединок: создай кухню и передай 4-значный код или ворвись на кухню соперника.",
-      button: "Ого!",
-    },
-    {
-      tab: "Правила кухни",
-      text: "В поединке у обоих одинаковые цели, поле и таймер. Победа в рейтинг идёт только тогда, когда цели закрыты.",
-      button: "Честная кухня!",
-    },
-    {
-      tab: "Реванш",
-      text: "После поединка можно позвать соперника на реванш. Код кухни остаётся тем же, а общий счёт серии копится в рейтинге этой кухни.",
-      button: "Ещё раунд!",
-    },
-    {
-      tab: "Мини-игры",
-      text: "Аэрогриль, блендер и кофемашина — маленькие кухонные забеги. Проходишь раунд — получаешь монетки.",
-      button: "Ого!",
-    },
-    {
-      tab: "Бустеры",
-      text: "Монетки живут в лавке бустеров. Молоточек, звёздный ход и миксер цвета помогают спасать сложные поля.",
-      button: "Хочу бустеры!",
-    },
-    {
-      tab: "Сложность",
-      text: "Сложность двигает уровень кухни: лёгкий зачёт даёт 1 шаг, нормальный — 2, сложный — 3. Очки рейтинга считаются отдельно.",
-      button: "На кухню!",
-    },
-  ];
-  let index = 0;
-  const overlay = document.createElement("div");
-  overlay.className = "help-modal select-dialog-modal";
-  overlay.innerHTML = `
-    <div class="select-help-panel" role="dialog" aria-modal="true" aria-label="Как играть">
-      <button class="status-close" type="button" id="closeSelectHelp">×</button>
-      <div class="select-help-character"></div>
-      <div class="select-help-bubble">
-        <div class="select-help-tabs"></div>
-        <p id="selectHelpText"></p>
-      </div>
-      <button class="action-button full" type="button" id="selectHelpNext">Ух ты!</button>
-    </div>
-  `;
-  app.append(overlay);
-  overlay.querySelector(".select-help-character").append(safeImg(ASSETS.boosters.shopCharacter, "Подсказчик"));
-  const text = overlay.querySelector("#selectHelpText");
-  const next = overlay.querySelector("#selectHelpNext");
-  const tabs = overlay.querySelector(".select-help-tabs");
-  const renderStep = () => {
-    text.textContent = steps[index].text;
-    tabs.innerHTML = steps.map((step, stepIndex) => `
-      <button class="select-help-tab ${stepIndex === index ? "active" : ""}" type="button" data-step="${stepIndex}">${step.tab}</button>
-    `).join("");
-    next.textContent = steps[index].button || (index === steps.length - 1 ? "Понятно" : "Хорошо");
-    tabs.querySelectorAll(".select-help-tab").forEach((tab) => {
-      tab.addEventListener("click", () => {
-        index = Number(tab.dataset.step) || 0;
-        renderStep();
-        playSound("click");
-      });
-    });
-  };
-  const close = () => {
-    overlay.remove();
-    playSound("click");
-  };
-  overlay.querySelector("#closeSelectHelp").addEventListener("click", close);
-  next.addEventListener("click", () => {
-    if (index >= steps.length - 1) {
-      close();
-      return;
-    }
-    index += 1;
-    renderStep();
-    playSound("click");
-  });
-  overlay.addEventListener("click", (event) => {
-    if (event.target === overlay) close();
-  });
-  renderStep();
-}
-
-function openHelpModal(characterKey = state.currentGame) {
-  if (document.querySelector(".help-modal")) return;
-  const copy = HELP_COPY[characterKey] || HELP_COPY.match;
-  const wasPaused = state.paused;
-  if (["airfryer", "blender", "coffee", "match"].includes(state.screen)) state.paused = true;
-  playSound("click");
-  const characterSrc = getHelpCharacter(characterKey);
-  const overlay = document.createElement("div");
-  overlay.className = "help-modal";
-  overlay.innerHTML = `
-    <div class="help-dialog compact">
-      <div class="help-character"></div>
-      <div class="help-copy">
-        <h3>${copy.title}</h3>
-        <div class="help-steps">${copy.lines.map((line) => `<span>${line}</span>`).join("")}</div>
-        <p>${copy.tip}</p>
-      </div>
-      <button class="action-button full" type="button" id="helpOk">Понятно</button>
-      <button class="status-close" type="button" id="closeHelp">×</button>
-    </div>
-  `;
-  app.append(overlay);
-  overlay.querySelector(".help-character").append(safeImg(characterSrc, "Подсказчик"));
-  const close = () => {
-    overlay.remove();
-    state.paused = wasPaused;
-    playSound("click");
-  };
-  overlay.querySelector("#closeHelp").addEventListener("click", close);
-  overlay.querySelector("#helpOk").addEventListener("click", close);
-  overlay.addEventListener("click", (event) => {
-    if (event.target === overlay) close();
-  });
-}
-
-function getHelpCharacter(characterKey) {
-  if (characterKey === "airfryer") return ASSETS.airfryer.normal;
-  if (characterKey === "blender") return ASSETS.blender.normal;
-  if (characterKey === "coffee") return ASSETS.coffee.normal;
-  return ASSETS.boosters.shopCharacter;
 }
 
 function startAirfryerGame() {
@@ -2922,6 +2764,11 @@ function startCoffeeGame() {
   const cupImg = safeImg(ASSETS.coffee.cupEmpty, "Чашка", "cup-img");
   machineMount.append(machineImg);
   cupMount.append(cupImg);
+  // Предзагрузка кадров, чтобы смена этапа не мигала и не дёргала сцену.
+  [ASSETS.coffee.brewing, ASSETS.coffee.steam, ASSETS.coffee.cup30, ASSETS.coffee.cup60, ASSETS.coffee.cupFull].forEach((src) => {
+    const preload = new Image();
+    preload.src = src;
+  });
 
   const game = {
     stage: 0,
@@ -3035,12 +2882,16 @@ function showMatchPrepScreen() {
         <div id="soundMount"></div>
       </div>
       <h2>Кубики сошлись</h2>
-      <p class="subtitle" style="text-align:center">Собирай цели, трать бустеры и не корми поле отчётами</p>
+      <p class="subtitle match-prep-subtitle">Собирай цели, трать бустеры и не корми поле отчётами</p>
       <div class="match-prep-card">
         <div class="match-prep-hero" id="matchPrepHero"></div>
         <div class="match-prep-copy">
-          <strong>${difficulty.label}: ${difficulty.matchMoves} ${plural(difficulty.matchMoves, ["ход", "хода", "ходов"])}</strong>
-          <span>${difficulty.matchGoals} цели${difficulty.matchBlockers ? ` · ${difficulty.matchBlockers} отчёта-блокера` : ""}</span>
+          <div class="prep-chips">
+            <span class="prep-chip accent">${difficulty.label}</span>
+            <span class="prep-chip">${difficulty.matchMoves} ${plural(difficulty.matchMoves, ["ход", "хода", "ходов"])}</span>
+            <span class="prep-chip">${difficulty.matchGoals} ${plural(difficulty.matchGoals, ["цель", "цели", "целей"])}</span>
+            ${difficulty.matchBlockers ? `<span class="prep-chip">${difficulty.matchBlockers} ${plural(difficulty.matchBlockers, ["отчёт", "отчёта", "отчётов"])}</span>` : ""}
+          </div>
         </div>
       </div>
       <div class="match-prep-side">
@@ -3353,6 +3204,7 @@ function getDuelProgressPayload(game) {
     goals_left: goalsLeft,
     goals_total: game.goalTotal,
     goals_closed: goalsLeft <= 0,
+    boosters_used: Math.max(0, Number(game.duelBoostersUsed) || 0),
   };
 }
 
@@ -3362,14 +3214,16 @@ function renderDuelRivalPill(room) {
   const opponentSide = getDuelOpponentSide(getDuelSide(room));
   const profile = getDuelPlayerProfile(room, opponentSide);
   const progress = opponentSide === "host" ? room.host_progress : room.guest_progress;
+  const rivalScore = Math.max(0, Number(progress?.score) || 0);
   pill.innerHTML = `
     ${duelAvatar(profile)}
     <span>${escapeHtml(profile?.name || "Соперник")}</span>
-    <strong>${Math.max(0, Number(progress?.score) || 0)}</strong>
+    <strong>${rivalScore}</strong>
   `;
   if (progress?.goals_closed) {
     pill.classList.add("closed");
   }
+  pill.classList.toggle("ahead", !progress?.goals_closed && rivalScore > Math.max(0, Number(state.score) || 0));
 }
 
 function getDuelSideState(room, side) {
@@ -3491,7 +3345,10 @@ function showDuelResultScreen(room) {
   };
   document.querySelector("#backMatchPrep").addEventListener("click", back);
   document.querySelector("#backToMatch").addEventListener("click", back);
-  document.querySelector("#duelKitchenHelp").addEventListener("click", showDuelKitchenHelp);
+  document.querySelector("#duelKitchenHelp").addEventListener("click", () => {
+    playSound("click");
+    runCoach("duelResult");
+  });
   document.querySelector("#duelRematch").addEventListener("click", async () => {
     playSound("click");
     state.difficulty = room.difficulty;
@@ -3554,9 +3411,14 @@ function getDuelVerdict(myResult = {}, rivalResult = {}) {
     : { tone: "lose", title: DUEL_COPY.placedSecond, phrase: "Цели не закрыты, а соперник оказался выше по очкам.", myPlace: 2, rivalPlace: 1 };
 }
 
+function isOwnDuelProfile(profile) {
+  return Boolean(profile?.player_id && profile.player_id === state.playerProfile?.player_id);
+}
+
 function duelScoreRow(profile, result = {}, place, fallbackName) {
+  const isMe = isOwnDuelProfile(profile);
   return `
-    <div class="duel-score-row ${place === 1 ? "leader" : ""}">
+    <div class="duel-score-row ${place === 1 ? "leader" : ""} ${isMe ? "me" : ""}">
       ${duelAvatar(profile)}
       <div>
         <strong>${escapeHtml(profile?.name || fallbackName)}</strong>
@@ -3569,8 +3431,9 @@ function duelScoreRow(profile, result = {}, place, fallbackName) {
 }
 
 function duelKitchenScoreRow(row) {
+  const isMe = isOwnDuelProfile(row.profile);
   return `
-    <div class="duel-score-row kitchen ${row.place === 1 ? "leader" : ""}">
+    <div class="duel-score-row kitchen ${row.place === 1 ? "leader" : ""} ${isMe ? "me" : ""}">
       ${duelAvatar(row.profile)}
       <div>
         <strong>${escapeHtml(row.profile?.name || (row.side === "host" ? "Хозяин кухни" : "Соперник"))}</strong>
@@ -3718,6 +3581,8 @@ function startMatchGame(options = {}) {
       if (game.selected === index) classes.push("selected");
       if (tile?.type === "blocker") classes.push("blocker");
       if (tile?.special) classes.push(`special-${tile.special}`);
+      // Не сбрасываем незавершённую анимацию приземления: обрыв на середине выглядит как лаг.
+      if (cell.classList.contains("tile-new")) classes.push("tile-new");
       cell.className = classes.join(" ");
       cell.dataset.index = String(index);
       if (tileId) cell.dataset.tileId = tileId;
@@ -3762,6 +3627,9 @@ function startMatchGame(options = {}) {
       cell.addEventListener("pointercancel", () => {
         resetDragPreview();
         game.pointerStart = null;
+      });
+      cell.addEventListener("animationend", (event) => {
+        if (event.animationName === "tile-new") cell.classList.remove("tile-new");
       });
       cell.addEventListener("mousedown", (event) => {
         if (game.pointerStart) return;
@@ -4037,7 +3905,7 @@ function startMatchGame(options = {}) {
         ? "clearing-special"
         : "clearing";
     indices.forEach((idx) => {
-      const cell = document.querySelector(`.match-cell[data-index="${idx}"]`);
+      const cell = game.cellEls[idx];
       if (cell) cell.classList.add(className);
     });
     await delay(className === "clearing-bomb" ? 360 : 300);
@@ -4209,6 +4077,29 @@ function startMatchGame(options = {}) {
     }
   }
 
+  function notifyRivalEvents(room) {
+    if (game.ended) return;
+    const opponentSide = getDuelOpponentSide(state.duel.side);
+    const progress = opponentSide === "host" ? room.host_progress : room.guest_progress;
+    if (!progress) return;
+    const prev = game.rivalEvents || { boosters_used: 0, ahead: false, seeded: false };
+    const rivalScore = Math.max(0, Number(progress.score) || 0);
+    const used = Math.max(0, Number(progress.boosters_used) || 0);
+    const ahead = !progress.goals_closed && rivalScore > Math.max(0, Number(state.score) || 0);
+    const name = getDuelOpponentProfile(room)?.name || "Соперник";
+    let message = "";
+    if (prev.seeded) {
+      if (used > prev.boosters_used) message = `${name}: бустер в деле!`;
+      else if (ahead && !prev.ahead && rivalScore > 0) message = `${name} вырывается вперёд!`;
+    }
+    game.rivalEvents = { boosters_used: used, ahead, seeded: true };
+    const now = Date.now();
+    if (message && now - (game.rivalToastAt || 0) > 5000) {
+      game.rivalToastAt = now;
+      showPhrase(area, message, "78%", "16%");
+    }
+  }
+
   function startDuelTimers() {
     const timer = setInterval(() => {
       if (game.ended) return;
@@ -4229,6 +4120,7 @@ function startMatchGame(options = {}) {
         if (freshRoom) {
           state.duel.room = freshRoom;
           renderDuelRivalPill(freshRoom);
+          notifyRivalEvents(freshRoom);
           const opponentSide = getDuelOpponentSide(state.duel.side);
           if (hasDuelSideClosedGoals(freshRoom, opponentSide)) {
             finishDuelMatch("opponent_closed", freshRoom);
@@ -4278,6 +4170,8 @@ function startMatchGame(options = {}) {
   function spendMatchBooster(key) {
     if (isDuel) {
       game.duelInventory[key] = Math.max(0, (game.duelInventory[key] || 0) - 1);
+      game.duelBoostersUsed = (game.duelBoostersUsed || 0) + 1;
+      pushDuelProgress(true);
       return;
     }
     state.wallet.inventory[key] -= 1;
@@ -4297,6 +4191,7 @@ function startMatchGame(options = {}) {
     },
     getSelectedBooster: () => game.selectedBooster,
     getBoosterCount: (key) => getMatchBoosterCount(key),
+    hasBoosterSlot: (key) => !isDuel || Object.prototype.hasOwnProperty.call(game.duelInventory || {}, key),
     isDuel: () => isDuel,
   };
   state.cleanup.push(() => {
@@ -4304,6 +4199,170 @@ function startMatchGame(options = {}) {
   });
 
   init();
+}
+
+function getCoachSteps(kind) {
+  if (kind === "select") {
+    return [
+      { target: ".main-game-zone", title: "Главная игра", text: "«Кубики сошлись» — здесь растёт рейтинг. Внутри есть соло-режим и кулинарный поединок по коду кухни." },
+      { target: ".difficulty-picker", title: "Сложность", text: "Легко, нормально или сложно: чем сложнее раунд, тем быстрее растёт уровень кухни." },
+      { target: ".mini-games-zone", title: "Мини-игры", text: "Быстрые забеги за монетками. Монетки меняются на бустеры в лавке." },
+      { target: "#statusMount", title: "Рейтинг", text: "Уровень и очки — на этой плашке. Нажми на неё, чтобы открыть таблицу лидеров." },
+    ];
+  }
+  if (kind === "match") {
+    return [
+      { target: "#matchBoard", title: "Собирай три в ряд", text: "Потяни плитку к соседней, чтобы поменять их местами и собрать три одинаковые." },
+      { target: ".match-status", title: "Цели раунда", text: "Собери плитки с плашек наверху — закроешь все цели, и раунд твой." },
+      { target: ".game-controls", title: "Ходы и бустеры", text: "Внизу — ходы и прогресс. Бустеры из лавки выручат, если плитки заупрямятся." },
+    ];
+  }
+  if (kind === "matchDuel") {
+    return [
+      { target: "#matchBoard", title: "Собирай три в ряд", text: "Потяни плитку к соседней. У вас с соперником одинаковые поле и цели." },
+      { target: ".match-status", title: "Цели раунда", text: "Кто первым закроет все цели, тот забирает кухню." },
+      { target: "#duelTimerPill", title: "Общий таймер", text: "Время идёт для обоих. Если никто не успел — победит счёт." },
+      { target: "#duelRivalPill", title: "Соперник", text: "Живой счёт соперника: оранжевый — вырвался вперёд, зелёный — закрыл цели." },
+    ];
+  }
+  if (kind === "airfryer") {
+    return [
+      { target: ".play-area", title: "Башня хруста", text: "Жди, когда аэрогриль подплывёт ровно над башней — блоки должны вставать ровно друг на друга." },
+      { target: "#mainAction", title: "Тапни вовремя", text: "Тап — и блок встаёт на место. Сильный промах завершает раунд, а три идеальных попадания подряд дают бонусную монетку." },
+    ];
+  }
+  if (kind === "blender") {
+    return [
+      { target: ".play-area", title: "Смузи-охота", text: "Лови фрукты, мяту и лёд в стакан. Бомбы, TNT и отчёты оставляй за бортом." },
+      { target: ".game-controls", title: "Три жизни", text: "Упустишь хороший продукт — минус жизнь. Пять точных ловушек подряд — бонусная монетка." },
+    ];
+  }
+  if (kind === "coffee") {
+    return [
+      { target: ".play-area", title: "Идеальный кофе", text: "Помол, пролив, пенка: на каждом этапе поймай бегунок в зелёной зоне." },
+      { target: "#mainAction", title: "Жми вовремя", text: "Зелёная зона засчитывает шаг, а попадание в самый центр приносит бонусную монетку." },
+    ];
+  }
+  if (kind === "duelResult") {
+    return [
+      { target: ".duel-round-rating", title: "Очки этого раунда", text: "Результат только последней схватки — кто выше именно сейчас." },
+      { target: ".duel-kitchen-rating", title: "Серия этой кухни", text: "Сумма всех раундов и реваншей в этой комнате." },
+      { target: "#duelRematch", title: "Реванш", text: "Зови соперника ещё на раунд — серия продолжится в этой же кухне. В общий рейтинг идёт только победа с закрытыми целями." },
+    ];
+  }
+  if (kind === "profile") {
+    return [
+      { target: ".avatar-picker", title: "Выбери героя", text: "Аэрогриль, блендер или кофемашина — это твоё лицо в рейтинге и в поединках." },
+      { target: "#profileName", title: "Представься кухне", text: "Имя, роль и отдел увидят коллеги в таблице лидеров. Всё можно поменять в любой момент." },
+      { target: ".profile-id-copy-row", title: "Твой ID — ключ к прогрессу", text: "Скопируй и сохрани этот код: очки, монетки и уровень привязаны к нему." },
+      { target: ".profile-id-login", title: "Играешь с двух устройств?", text: "Введи свой ID на телефоне или компьютере и нажми «Войти по ID» — прогресс переедет с тобой." },
+    ];
+  }
+  if (kind === "leaderboard") {
+    return [
+      { target: ".rating-summary", title: "Твой статус", text: "Звание зависит от места среди всех игроков: чем выше в таблице, тем громче титул. Очки приносят победы в «Кубиках сошлись»." },
+      { target: ".rating-level-track", title: "Как расти в уровне", text: "Выигрывай раунды «Кубиков»: легко +1, нормально +2, сложно +3 шага кухни. Полоса показывает, сколько шагов осталось до следующего уровня." },
+      { target: ".leaderboard-tabs", title: "Два рейтинга", text: "«Компания» — все игроки, «Мой отдел» — только твои коллеги. Переключай и сравнивай." },
+      { target: ".leaderboard-list", title: "Таблица лидеров", text: "Топ-3 носят медали, твоя строка подсвечена розовым с плашкой «ты»." },
+    ];
+  }
+  return [];
+}
+
+function getCoachKind() {
+  if (state.screen === "select") return "select";
+  if (state.screen === "match") return document.querySelector(".hud.duel-game-hud") ? "matchDuel" : "match";
+  if (["airfryer", "blender", "coffee"].includes(state.screen)) return state.screen;
+  if (state.screen === "duelResult") return "duelResult";
+  return "";
+}
+
+function coachStorageKey(kind) {
+  return `demiCoachDone:${kind}`;
+}
+
+function maybeAutoCoach(kind) {
+  if (!kind || localStorage.getItem(coachStorageKey(kind)) === "1") return;
+  runCoach(kind);
+}
+
+function runCoach(kind) {
+  const steps = getCoachSteps(kind).filter((step) => document.querySelector(step.target));
+  if (!steps.length || document.querySelector(".coach-overlay")) return;
+  localStorage.setItem(coachStorageKey(kind), "1");
+  const pausableGame = ["airfryer", "blender", "coffee", "match"].includes(state.screen) && kind !== "matchDuel";
+  const wasPaused = state.paused;
+  if (pausableGame) state.paused = true;
+  const overlay = document.createElement("div");
+  overlay.className = "coach-overlay";
+  overlay.innerHTML = `
+    <div class="coach-hole"></div>
+    <div class="coach-card" role="dialog" aria-modal="true" aria-label="Обучение">
+      <span class="coach-step"></span>
+      <h3></h3>
+      <p></p>
+      <button class="action-button full" type="button" id="coachNext">Дальше</button>
+      <button class="coach-skip" type="button" id="coachSkip">Пропустить обучение</button>
+    </div>
+  `;
+  app.append(overlay);
+  const hole = overlay.querySelector(".coach-hole");
+  const card = overlay.querySelector(".coach-card");
+  let index = 0;
+  const place = () => {
+    const step = steps[index];
+    const target = document.querySelector(step.target);
+    if (!target) {
+      finish();
+      return;
+    }
+    try {
+      target.scrollIntoView({ block: "nearest" });
+    } catch {
+      // Ignore: scrolling is a nicety, positioning still works.
+    }
+    const appRect = app.getBoundingClientRect();
+    const rect = target.getBoundingClientRect();
+    const pad = 8;
+    hole.style.left = `${rect.left - appRect.left - pad}px`;
+    hole.style.top = `${rect.top - appRect.top - pad}px`;
+    hole.style.width = `${rect.width + pad * 2}px`;
+    hole.style.height = `${rect.height + pad * 2}px`;
+    overlay.querySelector(".coach-step").textContent = `${index + 1} из ${steps.length}`;
+    overlay.querySelector("h3").textContent = step.title;
+    overlay.querySelector("p").textContent = step.text;
+    overlay.querySelector("#coachNext").textContent = index === steps.length - 1 ? "Понятно!" : "Дальше";
+    const targetCenter = rect.top - appRect.top + rect.height / 2;
+    if (targetCenter < appRect.height / 2) {
+      card.style.top = "auto";
+      card.style.bottom = "20px";
+    } else {
+      card.style.bottom = "auto";
+      card.style.top = "calc(20px + var(--safe-top))";
+    }
+  };
+  const onResize = () => place();
+  const finish = () => {
+    state.paused = wasPaused;
+    window.removeEventListener("resize", onResize);
+    overlay.remove();
+  };
+  overlay.querySelector("#coachNext").addEventListener("click", () => {
+    playSound("click");
+    index += 1;
+    if (index >= steps.length) finish();
+    else place();
+  });
+  overlay.querySelector("#coachSkip").addEventListener("click", () => {
+    playSound("click");
+    finish();
+  });
+  window.addEventListener("resize", onResize);
+  state.cleanup.push(() => {
+    window.removeEventListener("resize", onResize);
+    overlay.remove();
+  });
+  place();
 }
 
 function refreshBoosterBar() {
@@ -4314,8 +4373,11 @@ function refreshBoosterBar() {
   }
   const selected = window.__currentMatchGame?.getSelectedBooster?.() || null;
   const isTemporaryKit = Boolean(window.__currentMatchGame?.isDuel?.());
-  const entries = Object.entries(BOOSTERS);
-  if (isTemporaryKit && entries.every(([key]) => window.__currentMatchGame.getBoosterCount(key) <= 0)) {
+  let entries = Object.entries(BOOSTERS);
+  if (isTemporaryKit && window.__currentMatchGame?.hasBoosterSlot) {
+    entries = entries.filter(([key]) => window.__currentMatchGame.hasBoosterSlot(key));
+  }
+  if (isTemporaryKit && !entries.length) {
     bar.hidden = true;
     return;
   }
@@ -4537,10 +4599,10 @@ function showResult(character, score, outcome = "win") {
   const result = getResultCopy(character, score, outcome);
   const resultImage = getResultImage(character, score, outcome);
   const resultRank = isRatingGame
-    ? (outcome === "win" ? result.rank : "Очки рейтинга не начислены")
+    ? (outcome === "win" ? result.rank : "Рейтинг подождёт реванша")
     : outcome === "win"
-      ? "Монетки за победу получены"
-      : "База не начислена";
+      ? "Монетки уже в кошельке!"
+      : "Без монеток в этот раз";
   const coinDetails = !isRatingGame && coinsEarned
     ? `<p class="small-note result-note">${baseCoins ? `Победа: +${baseCoins} ${plural(baseCoins, ["монета", "монеты", "монет"])}` : "Победа не засчитана"}${bonusCoins ? ` · Бонусы: +${bonusCoins} ${plural(bonusCoins, ["монета", "монеты", "монет"])}` : ""}</p>`
     : `<p class="small-note result-note">${result.note}</p>`;
@@ -4550,9 +4612,9 @@ function showResult(character, score, outcome = "win") {
       <div class="result-card">
         <div id="resultHero"></div>
         <div class="result-copy">
-          ${isRatingGame ? `<div class="score-big">${outcome === "win" ? score : "0"}</div>` : `<div class="coin-total"><img src="${ASSETS.economy.coin}" alt="">${coinsEarned ? `+${coinsEarned}` : "0"} монет</div>`}
           <h2>${result.title}</h2>
           <div class="rank">${resultRank}</div>
+          ${isRatingGame ? `<div class="score-big">${outcome === "win" ? score : "0"}</div>` : `<div class="coin-total"><img src="${ASSETS.economy.coin}" alt="">${coinsEarned ? `+${coinsEarned}` : "0"} монет</div>`}
           <p class="result-phrase">${result.phrase}</p>
           ${coinDetails}
         </div>
