@@ -3531,7 +3531,11 @@ function startMatchGame(options = {}) {
     <div class="match-board" id="matchBoard" aria-label="Поле Кубики сошлись"></div>
   `;
   document.querySelector(".progress-panel")?.classList.add("match-progress");
-  document.querySelector(".game-controls").insertAdjacentHTML("afterbegin", `<div class="booster-bar" id="boosterBar"></div>`);
+  if (isDuel) {
+    area.insertAdjacentHTML("beforeend", `<div class="booster-bar" id="boosterBar"></div>`);
+  } else {
+    document.querySelector(".game-controls").insertAdjacentHTML("afterbegin", `<div class="booster-bar" id="boosterBar"></div>`);
+  }
   document.querySelector("#matchCharacter").append(safeImg(ASSETS.match.normal, "Кубики сошлись"));
   if (isDuel) {
     button.hidden = true;
@@ -4608,7 +4612,7 @@ function showResult(character, score, outcome = "win") {
     : `<p class="small-note result-note">${result.note}</p>`;
   render(`
     <section class="screen result-screen ${isRatingGame ? "" : "mini-result-screen"}">
-      <div class="top-row"><button class="back-button" type="button" id="selectButtonTop">←</button>${isRatingGame ? '<div id="statusMount"></div>' : ""}<div id="walletMount"></div><div id="soundMount"></div></div>
+      <div class="top-row"><button class="back-button" type="button" id="selectButtonTop">←</button><div id="statusMount"></div><div id="walletMount"></div><div id="soundMount"></div></div>
       <div class="result-card">
         <div id="resultHero"></div>
         <div class="result-copy">
@@ -4625,7 +4629,7 @@ function showResult(character, score, outcome = "win") {
       </div>
     </section>
   `);
-  if (isRatingGame) mountStatus();
+  mountStatus();
   mountWallet();
   document.querySelector("#soundMount").append(soundButton());
   document.querySelector("#resultHero").append(safeImg(resultImage, characterData.name, "result-hero"));
