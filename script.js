@@ -277,20 +277,19 @@ const PROFILE_AVATARS = {
   blender: { label: "Блендер", src: ASSETS.blender.normal, icon: ASSETS.profileIcons.blender },
   coffee: { label: "Кофемашина", src: ASSETS.coffee.normal, icon: ASSETS.profileIcons.coffee },
 };
-const DEPARTMENTS = [
-  "SMM",
-  "HR",
-  "Финансы",
-  "Сервис-склад",
-  "Сервис-менеджеры",
-  "Контент-креаторы",
-  "Продажи",
-  "Бухгалтерия",
-  "Логистика и ВЭД",
-  "IT",
-  "E-com",
-  "Администрация и CEO",
-  "Ассистенты",
+const KITCHENS = [
+  "Итальянская кухня",
+  "Японская кухня",
+  "Французская кухня",
+  "Грузинская кухня",
+  "Мексиканская кухня",
+  "Тайская кухня",
+  "Индийская кухня",
+  "Китайская кухня",
+  "Корейская кухня",
+  "Русская кухня",
+  "Средиземноморская кухня",
+  "Американская кухня",
 ];
 const BOOSTERS = {
   hammer: { title: "Молоточек", desc: "Убирает одну плитку или отчёт.", price: 12, action: "target" },
@@ -824,7 +823,7 @@ function getProfileAvatarIcon(avatarId) {
 }
 
 function normalizeDepartment(value) {
-  return DEPARTMENTS.includes(value) ? value : DEPARTMENTS[0];
+  return KITCHENS.includes(value) ? value : KITCHENS[0];
 }
 
 function normalizeCareerProgress(progress) {
@@ -1095,7 +1094,7 @@ function openProfileModal(options = {}) {
           <span>${avatar.label}</span>
         </label>
       `).join("");
-  const departmentMarkup = DEPARTMENTS.map((department) => `
+  const departmentMarkup = KITCHENS.map((department) => `
           <option value="${escapeHtml(department)}" ${department === selectedDepartment ? "selected" : ""}>${escapeHtml(department)}</option>
         `).join("");
   const overlay = document.createElement("div");
@@ -1105,7 +1104,7 @@ function openProfileModal(options = {}) {
       ${required ? "" : '<button class="status-close" type="button" id="closeProfile">×</button>'}
       <button class="duel-info-button profile-coach-help" type="button" id="profileCoachHelp" aria-label="Как устроен профиль?">?</button>
       <h3>Как тебя записать в рейтинг?</h3>
-      <p>Имя, роль, отдел и герой будут видны в рейтинге “Кубики сошлись”.</p>
+      <p>Имя, любимая кухня мира и герой будут видны в общем рейтинге “Кубики сошлись”.</p>
       <div class="profile-section-title">Выбери своего героя</div>
       <div class="avatar-picker" role="radiogroup" aria-label="Аватар профиля">
         ${avatarMarkup}
@@ -1115,11 +1114,7 @@ function openProfileModal(options = {}) {
         <input id="profileName" name="name" type="text" maxlength="24" autocomplete="name" required value="${escapeHtml(profile.name || "")}" placeholder="Например, Аня">
       </label>
       <label>
-        <span>Должность или роль</span>
-        <input id="profileRole" name="role" type="text" maxlength="40" autocomplete="organization-title" value="${escapeHtml(profile.role || "")}" placeholder="Например, дизайнер кухни">
-      </label>
-      <label>
-        <span>Отдел</span>
+        <span>Любимая кухня мира</span>
         <select id="profileDepartment" name="department" required>
           ${departmentMarkup}
         </select>
@@ -1222,7 +1217,7 @@ function openProfileModal(options = {}) {
     event.preventDefault();
     const submitButton = overlay.querySelector('button[type="submit"]');
     const name = overlay.querySelector("#profileName").value;
-    const role = overlay.querySelector("#profileRole").value;
+    const role = "";
     const avatar = overlay.querySelector('input[name="avatar_id"]:checked')?.value;
     const department = overlay.querySelector("#profileDepartment").value;
     if (isSupabaseConfigured()) {
@@ -1267,8 +1262,8 @@ function openLeaderboardModal(options = {}) {
       <h3>${escapeHtml(options.title || "Рейтинговая доска")}</h3>
       <div class="rating-summary" id="ratingSummary">${ratingSummaryHTML(info)}</div>
       <div class="leaderboard-tabs" role="tablist" aria-label="Тип рейтинга">
-        <button class="leaderboard-tab active" type="button" data-scope="company">Компания</button>
-        <button class="leaderboard-tab" type="button" data-scope="department" ${department ? "" : "disabled"}>Мой отдел</button>
+        <button class="leaderboard-tab active" type="button" data-scope="company">Все повара</button>
+        <button class="leaderboard-tab" type="button" data-scope="department" ${department ? "" : "disabled"}>Моя кухня</button>
       </div>
       <div class="leaderboard-list" id="leaderboardList">
         <div class="leaderboard-empty">Кухня считает очки...</div>
@@ -1308,7 +1303,7 @@ async function loadLeaderboardInto(container, scope = "company") {
     refreshRatingSummary();
     const rows = Array.isArray(data.leaderboard) ? data.leaderboard : [];
     if (!rows.length) {
-      container.innerHTML = `<div class="leaderboard-empty">${scope === "department" ? "В отделе пока пусто. Можно открыть счёт." : "Пока пусто. Самое время стать первым."}</div>`;
+      container.innerHTML = `<div class="leaderboard-empty">${scope === "department" ? "На этой кухне пока пусто. Можно открыть счёт." : "Пока пусто. Самое время стать первым."}</div>`;
       return;
     }
     const ownId = state.playerProfile?.player_id || "";
@@ -1323,7 +1318,7 @@ async function loadLeaderboardInto(container, scope = "company") {
         <img class="leaderboard-avatar" src="${getProfileAvatarIcon(row.avatar_id)}" alt="">
         <div>
           <span>${escapeHtml(row.display_name || "Игрок")}</span>
-          <em>${escapeHtml(row.display_role || "Гость кухни")}${row.display_department ? ` · ${escapeHtml(row.display_department)}` : ""}</em>
+          <em>${escapeHtml(row.display_department || "Свободный повар")}</em>
         </div>
         <b>${Number(row.total_score || 0)}</b>
         <small>${Number(row.rounds || 0)} ${plural(Number(row.rounds || 0), ["раунд", "раунда", "раундов"])}</small>
@@ -1341,7 +1336,7 @@ async function loadLeaderboardInto(container, scope = "company") {
           <img class="leaderboard-avatar" src="${getProfileAvatarIcon(profile.avatar_id)}" alt="">
           <div>
             <span>${escapeHtml(profile.display_name || profile.name || "Игрок")}</span>
-            <em>${escapeHtml(profile.display_role || profile.role || "Гость кухни")}${profile.display_department || profile.department ? ` · ${escapeHtml(profile.display_department || profile.department)}` : ""}</em>
+            <em>${escapeHtml(profile.display_department || profile.department || "Свободный повар")}</em>
           </div>
           <b>${info.totalScore}</b>
           <small>${info.rounds} ${plural(info.rounds, ["раунд", "раунда", "раундов"])}</small>
@@ -1576,7 +1571,7 @@ function normalizeLeaderboardPlayer(player) {
     department: normalizeDepartment(player?.department),
     display_name: cleanProfileField(player?.display_name || player?.name, 24, "Игрок"),
     display_role: cleanProfileField(player?.display_role || player?.role, 40, "Гость кухни"),
-    display_department: cleanProfileField(player?.display_department || player?.department, 60, DEPARTMENTS[0]),
+    display_department: cleanProfileField(player?.display_department || player?.department, 60, KITCHENS[0]),
     total_score: totalScore,
     rounds,
     level_points: levelPoints,
@@ -1618,7 +1613,6 @@ async function fetchDuplicateProfile(name, role, department, ownPlayerId = "") {
   const query = [
     "select=player_id,name,role,department",
     `name=ilike.${encodeSupabaseValue(cleanProfileField(name, 24, "Игрок"))}`,
-    `role=ilike.${encodeSupabaseValue(cleanProfileField(role, 40, "Гость кухни"))}`,
     `department=eq.${encodeSupabaseValue(normalizeDepartment(department))}`,
     "limit=5",
   ].join("&");
@@ -1636,7 +1630,7 @@ async function upsertSupabasePlayer(profile, stats = {}) {
     department: normalizeDepartment(profile.department),
     display_name: cleanProfileField(profile.display_name || profile.name, 24, "Игрок"),
     display_role: cleanProfileField(profile.display_role || profile.role, 40, "Гость кухни"),
-    display_department: cleanProfileField(profile.display_department || profile.department, 60, DEPARTMENTS[0]),
+    display_department: cleanProfileField(profile.display_department || profile.department, 60, KITCHENS[0]),
     total_score: Math.max(0, Number(stats?.total_score) || 0),
     rounds: Math.max(0, Number(stats?.rounds) || 0),
     level_points: Math.max(0, Number(stats?.level_points ?? stats?.rounds) || 0),
@@ -4257,7 +4251,7 @@ function getCoachSteps(kind) {
   if (kind === "profile") {
     return [
       { target: ".avatar-picker", title: "Выбери героя", text: "Аэрогриль, блендер или кофемашина — это твоё лицо в рейтинге и в поединках." },
-      { target: "#profileName", title: "Представься кухне", text: "Имя, роль и отдел увидят коллеги в таблице лидеров. Всё можно поменять в любой момент." },
+      { target: "#profileName", title: "Представься кухне", text: "Имя и любимая кухня мира будут видны другим поварам в таблице лидеров. Всё можно поменять в любой момент." },
       { target: ".profile-id-copy-row", title: "Твой ID — ключ к прогрессу", text: "Скопируй и сохрани этот код: очки, монетки и уровень привязаны к нему." },
       { target: ".profile-id-login", title: "Играешь с двух устройств?", text: "Введи свой ID на телефоне или компьютере и нажми «Войти по ID» — прогресс переедет с тобой." },
     ];
@@ -4266,7 +4260,7 @@ function getCoachSteps(kind) {
     return [
       { target: ".rating-summary", title: "Твой статус", text: "Звание зависит от места среди всех игроков: чем выше в таблице, тем громче титул. Очки приносят победы в «Кубиках сошлись»." },
       { target: ".rating-level-track", title: "Как расти в уровне", text: "Выигрывай раунды «Кубиков»: легко +1, нормально +2, сложно +3 шага кухни. Полоса показывает, сколько шагов осталось до следующего уровня." },
-      { target: ".leaderboard-tabs", title: "Два рейтинга", text: "«Компания» — все игроки, «Мой отдел» — только твои коллеги. Переключай и сравнивай." },
+      { target: ".leaderboard-tabs", title: "Два рейтинга", text: "«Все повара» — общий зачёт, «Моя кухня» — только те, кто выбрал ту же кухню мира. Переключай и сравнивай." },
       { target: ".leaderboard-list", title: "Таблица лидеров", text: "Топ-3 носят медали, твоя строка подсвечена розовым с плашкой «ты»." },
     ];
   }
